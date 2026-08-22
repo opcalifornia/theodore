@@ -16,18 +16,25 @@ from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
 from theodore.analyze.selects import run_selects
 from theodore.analyze.themes import run_themes
+from theodore.assembly import ordering as assembly_ordering
+from theodore.assembly import plan as assembly_plan
+from theodore.assembly import trim as assembly_trim
+from theodore.export import captions as export_captions
 from theodore.export import edl as export_edl
 from theodore.export import notes as export_notes
+from theodore.export import review as export_review
 from theodore.ingest import audio as ingest_audio
 from theodore.ingest import media as ingest_media
 from theodore.resolve import connection as resolve_connection
 from theodore.resolve import markers as resolve_markers
+from theodore.resolve import timecode
 from theodore.transcribe import deepgram as dg
 
 logger = logging.getLogger("theodore.cli")
 
 MODEL_TIER_CHOICE = click.Choice(["economy", "standard", "premium"])
 ADDRESSING_CHOICE = click.Choice(["sequential", "canonical"])
+MODE_CHOICE = click.Choice(list(assembly_ordering.MODES))
 MEDIA_EXTS = {".mov", ".mp4", ".mxf", ".wav", ".mp3", ".m4a", ".braw", ".r3d"}
 
 
@@ -384,6 +391,177 @@ def ids(project: str, subject: str):
         canonical_suffix = f"  [guide: {canonical}]" if canonical else ""
         label = seg.get("question_label") or seg.get("question_text") or "(volunteered)"
         click.echo(f"  {seg['id']:<16} {label}{canonical_suffix}")
+
+
+def _parse_exclude(exclude: Optional[str], analysis: dict) -> set:
+    """Parse a comma-separated --exclude list, validating every id against
+    the analysis. An unknown id is an error, never silently ignored: the
+    whole point of the review.html -> --exclude loop is that the ids you
+    paste back are acted on exactly, and quietly dropping a typo'd id would
+    put a segment you meant to cut back into the assembly."""
+    if not exclude:
+        return set()
+    requested = {s.strip() for s in exclude.split(",") if s.strip()}
+    known = {s["id"] for s in analysis["segments"]}
+    unknown = requested - known
+    if unknown:
+        raise click.ClickException(
+            f"--exclude names segment id(s) not in this subject's analysis: "
+            f"{', '.join(sorted(unknown))}.\nKnown ids: {', '.join(sorted(known))}"
+        )
+    return requested
+
+
+def _prepare_assembly(
+    subj_dir: Path,
+    subject: str,
+    *,
+    mode: str,
+    handles: int,
+    silence_threshold: float,
+    aggressive_trim: bool,
+    exclude: Optional[str],
+    model_tier: str,
+    cost_tracker: CostTracker,
+    apply_trim: bool = True,
+):
+    """Shared front half of every assembly-facing command: load the
+    subject's transcript/analysis, compute (and persist) trim proposals,
+    resolve the assembly order, and turn all of that into the concrete
+    per-clip frame plan. `apply_trim=False` is the `untrim` path -- an
+    empty trims dict makes assembly.plan fall back to each segment's full
+    clean range."""
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    trims: dict = {}
+    if apply_trim:
+        trims = assembly_trim.compute_trims(
+            analysis, transcript,
+            silence_threshold=silence_threshold, aggressive=aggressive_trim,
+        )
+        assembly_trim.save_trims(trims, subj_dir)
+
+    excluded = _parse_exclude(exclude, analysis)
+
+    order, rationale = assembly_ordering.compute_order(
+        analysis, mode, model_tier=model_tier, cost_tracker=cost_tracker,
+    )
+    plan = assembly_plan.build_plan(
+        transcript, analysis, trims, order,
+        handle_frames=handles, excluded=excluded,
+    )
+    return transcript, analysis, trims, order, rationale, plan, excluded
+
+
+def _assembly_options(fn):
+    """The flags every assembly-facing command shares."""
+    fn = click.option("--model-tier", type=MODEL_TIER_CHOICE, default=config.DEFAULT_MODEL_TIER)(fn)
+    fn = click.option("--exclude", default=None, help="Comma-separated segment ids to leave out (paste from review.html).")(fn)
+    fn = click.option("--trim/--no-trim", "apply_trim", default=True, help="Apply trim proposals (default) or preview at full length.")(fn)
+    fn = click.option("--aggressive-trim", is_flag=True, help="Also cut interior filler words, not just boundary filler.")(fn)
+    fn = click.option("--silence-threshold", default=config.DEFAULT_SILENCE_THRESHOLD_SECONDS, type=float)(fn)
+    fn = click.option("--handles", default=config.DEFAULT_HANDLE_FRAMES, type=int, help="Handle frames on each side of every clip.")(fn)
+    fn = click.option("--mode", type=MODE_CHOICE, default="chronological")(fn)
+    fn = click.option("--subject", required=True)(fn)
+    fn = click.option("--project", required=True)(fn)
+    return fn
+
+
+def _report_runtime(plan, fps) -> None:
+    total_frames = assembly_plan.total_runtime_frames(plan)
+    click.echo(f"   {len(plan)} clips, runtime {timecode.frames_to_timecode(total_frames, fps)} ({total_frames} frames)")
+
+
+@cli.command()
+@_assembly_options
+def review(project, subject, mode, handles, silence_threshold, aggressive_trim, apply_trim, exclude, model_tier):
+    """Generate review.html for the proposed assembly -- read this before building."""
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    cost_tracker = CostTracker()
+    transcript, analysis, trims, order, rationale, plan, excluded = _prepare_assembly(
+        subj_dir, subject, mode=mode, handles=handles, silence_threshold=silence_threshold,
+        aggressive_trim=aggressive_trim, exclude=exclude, model_tier=model_tier,
+        cost_tracker=cost_tracker, apply_trim=apply_trim,
+    )
+
+    out = export_review.write_review_html(
+        f"{project} / {subject}", transcript, analysis, trims, subj_dir / "review.html",
+        segment_order=order, mode=mode, rationale=rationale, excluded=excluded,
+    )
+    _report_runtime(plan, transcript["fps"])
+    if cost_tracker.calls:
+        click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")
+    click.echo(f"\nWrote {out}\nOpen it, uncheck what you don't want, then re-run with the --exclude string it gives you.")
+
+
+@cli.command()
+@_assembly_options
+@click.option("--srt/--no-srt", default=True, help="Write captions.srt (default on).")
+@click.option("--vtt/--no-vtt", default=True, help="Write captions.vtt (default on).")
+@click.option("--import-to-resolve", is_flag=True, help="Also try to import the SRT onto the currently open Resolve timeline.")
+def captions(project, subject, mode, handles, silence_threshold, aggressive_trim, apply_trim,
+             exclude, model_tier, srt, vtt, import_to_resolve):
+    """Export SRT/WebVTT captions timed against the assembly, not the source."""
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    cost_tracker = CostTracker()
+    transcript, analysis, trims, order, rationale, plan, excluded = _prepare_assembly(
+        subj_dir, subject, mode=mode, handles=handles, silence_threshold=silence_threshold,
+        aggressive_trim=aggressive_trim, exclude=exclude, model_tier=model_tier,
+        cost_tracker=cost_tracker, apply_trim=apply_trim,
+    )
+
+    cues = export_captions.build_cues(transcript, analysis, trims, plan)
+    click.echo(f"Built {len(cues)} caption cues across {len(plan)} clips.")
+
+    srt_path = None
+    if srt:
+        srt_path = export_captions.write_srt(cues, subj_dir / "captions.srt")
+        click.echo(f"   {srt_path}")
+    if vtt:
+        click.echo(f"   {export_captions.write_vtt(cues, subj_dir / 'captions.vtt')}")
+
+    if import_to_resolve:
+        if srt_path is None:
+            raise click.ClickException("--import-to-resolve needs the SRT; don't pass --no-srt with it.")
+        try:
+            handles_ = resolve_connection.connect()
+        except resolve_connection.ResolveConnectionError as exc:
+            click.echo(f"\nCould not connect to Resolve, so the SRT wasn't imported: {exc}")
+        else:
+            if export_captions.import_subtitles_to_timeline(handles_, srt_path):
+                click.echo(f"\nImported the subtitle track onto {resolve_connection.describe_timeline(handles_)}")
+            else:
+                click.echo(
+                    f"\nThis Resolve version wouldn't take the subtitle import via scripting.\n"
+                    f"Import it by hand instead: File > Import > Subtitle...  ->  {srt_path}"
+                )
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+def quotes(project: str, subject: str):
+    """Pull-quote sheet: every best line with timecodes, sorted by strength."""
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    # Deliberately does NOT run the ordering pass -- quotes are keyed to
+    # source timecode and sorted by strength, so there's nothing here that
+    # depends on assembly order, and narrative mode would bill a Claude
+    # call for nothing.
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    out = export_captions.write_quotes(analysis, transcript, subj_dir / "quotes.txt")
+    click.echo(f"Wrote {out}")
 
 
 @cli.command()
