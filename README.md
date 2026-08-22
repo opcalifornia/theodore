@@ -15,15 +15,16 @@ registry with immutable ids and canonical question-guide matching, versioned
 edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
 (`theodore delivery`/`peaks`), redundancy detection across near-duplicate
-answers (`theodore dupes`), and cross-subject plain-language search
-(`theodore find`) (v2.0 Parts 1-4 steps 7-8). **Known limitation:**
-`theodore build` can't yet assemble a sequence spanning more than one
-subject (rejected with a clear error, not silently mis-built) — the "move
-haylee.q03 after marcus.q04" cross-subject case needs `assembly/plan.py`
-to work across multiple transcripts, which is follow-up work. **Not yet
-built:** coverage/gap analysis, duration targeting, the learning loop,
-client export, and voice control. Module boundaries are deliberately kept
-clean so all of that is additive, not a rewrite.
+answers (`theodore dupes`), cross-subject plain-language search
+(`theodore find`), and the rejects/gap views (`theodore rejects`/`gaps`)
+(v2.0 Parts 1-4 steps 7-9). **Known limitation:** `theodore build` can't
+yet assemble a sequence spanning more than one subject (rejected with a
+clear error, not silently mis-built) — the "move haylee.q03 after
+marcus.q04" cross-subject case needs `assembly/plan.py` to work across
+multiple transcripts, which is follow-up work. **Not yet built:**
+duration targeting, the learning loop, client export, and voice control.
+Module boundaries are deliberately kept clean so all of that is additive,
+not a rewrite.
 
 ## Requirements
 
@@ -135,6 +136,15 @@ already carry their subject prefix, so a cross-subject result set (e.g.
 question/answer summaries, not an embeddings index — per-project segment
 counts are small enough that this is simpler and no less accurate.
 
+`theodore rejects` and `theodore gaps` are pure re-reads of data `analyze`
+already produced — no API calls, no new files. `rejects` surfaces
+segments Selects scored too weak to use as-is (sorted weakest first, with
+their issues and rationale), and `gaps` compares a subject's answered
+`canonical_question_id`s against the project's `question_guide` to show
+which guide questions that subject never actually answered — the
+complement to Selects telling you what's good: what's weak, and what's
+missing.
+
 Output, per project:
 
 ```
@@ -197,9 +207,11 @@ theodore chat --project <name>                          # interactive REPL over 
 theodore delivery --project <name> --subject <id>       # pitch/energy/pause/onset-delay profiles
 theodore peaks --project <name> --subject <id>          # segments ranked by divergence from baseline
 
-# v2.0 Part 4 -- redundancy detection + semantic search
+# v2.0 Part 4 -- redundancy detection, semantic search, rejects/gaps
 theodore dupes --project <name> --subject <id> [--model-tier ...]      # near-duplicate answers, pick-one groups
 theodore find "<query>" --project <name> [--subject <id>] [--limit N]  # plain-language search, one or all subjects
+theodore rejects --project <name> --subject <id> [--threshold N]       # weak segments, sorted weakest first
+theodore gaps --project <name> --subject <id>                          # question-guide entries never answered
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see

@@ -12,6 +12,7 @@ import anthropic
 import click
 
 from theodore import commands, config, edits, registry
+from theodore.analyze import coverage as analyze_coverage
 from theodore.analyze import delivery as analyze_delivery
 from theodore.analyze import redundancy as analyze_redundancy
 from theodore.analyze import search as analyze_search
@@ -464,6 +465,60 @@ def find(query: str, project: str, subject: Optional[str], model_tier: str, limi
             click.echo(f"  {m.get('reason', '')}")
 
     click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+@click.option("--threshold", default=analyze_coverage.REJECT_STRENGTH_THRESHOLD, type=float,
+              help=f"Strength below which a segment counts as a reject (default {analyze_coverage.REJECT_STRENGTH_THRESHOLD}).")
+def rejects(project: str, subject: str, threshold: float):
+    """Segments Selects scored too weak to use as-is -- what's NOT making
+    the cut, and why, sorted weakest first. Pure re-read of `analysis.json`,
+    no API calls."""
+    project_dir, reg = _load_registry(project)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    rejected = analyze_coverage.find_rejects(analysis["segments"], analysis.get("selects", []), threshold=threshold)
+    if not rejected:
+        click.echo(f"No segments below strength {threshold:.2f}.")
+        return
+
+    click.echo(f"{len(rejected)} segment(s) below strength {threshold:.2f}:")
+    for r in rejected:
+        click.echo(f"\n[{r['strength']:.2f}] {r['segment_id']} -- {r['question_text'] or '(volunteered)'}")
+        if r["issues"]:
+            click.echo(f"  issues: {', '.join(r['issues'])}")
+        if r["rationale"]:
+            click.echo(f"  {r['rationale']}")
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+def gaps(project: str, subject: str):
+    """Canonical question-guide entries this subject never answered.
+    Needs a `question_guide` in project.json and `--addressing canonical`
+    to have run (the default once a guide exists)."""
+    project_dir, reg = _load_registry(project)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    guide = reg.get("question_guide") or []
+    if not guide:
+        raise click.ClickException(
+            "This project has no question_guide defined in project.json -- nothing to check gaps against."
+        )
+    analysis = _load_analysis(subj_dir, subject)
+
+    missing = analyze_coverage.find_gaps(analysis["segments"], guide)
+    if not missing:
+        click.echo(f"'{subject}' covers every question in the guide ({len(guide)}/{len(guide)}).")
+        return
+
+    click.echo(f"'{subject}' is missing {len(missing)}/{len(guide)} guide question(s):")
+    for g in missing:
+        click.echo(f"  [{g['id']}] {g['canonical']}")
 
 
 @cli.command()
