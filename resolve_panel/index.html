@@ -23,6 +23,10 @@
     <button class="tab-btn active" data-tab="segments">Segments</button>
     <button class="tab-btn" data-tab="dupes">Dupes</button>
     <button class="tab-btn" data-tab="gaps">Gaps</button>
+    <button class="tab-btn" data-tab="delivery">Delivery</button>
+    <button class="tab-btn" data-tab="find">Find</button>
+    <button class="tab-btn" data-tab="learn">Learn</button>
+    <button class="tab-btn" data-tab="versions">Versions</button>
     <button class="tab-btn" data-tab="say">Say / Pending</button>
   </nav>
 
@@ -44,6 +48,40 @@
     <section id="tab-gaps" class="tab-panel">
       <button id="run-gaps-btn">Run theodore gaps</button>
       <pre id="gaps-output" class="console"></pre>
+    </section>
+
+    <section id="tab-delivery" class="tab-panel">
+      <button id="run-delivery-btn">Run theodore delivery</button>
+      <button id="run-peaks-btn">Run theodore peaks</button>
+      <pre id="delivery-output" class="console"></pre>
+    </section>
+
+    <section id="tab-find" class="tab-panel">
+      <div id="find-row">
+        <input id="find-input" type="text" placeholder='e.g. someone talking about losing a parent'>
+        <label><input type="checkbox" id="find-scope-subject"> this subject only</label>
+        <button id="find-btn">Find</button>
+      </div>
+      <pre id="find-output" class="console"></pre>
+    </section>
+
+    <section id="tab-learn" class="tab-panel">
+      <button id="run-learn-btn">Run theodore learn</button>
+      <pre id="learn-output" class="console"></pre>
+    </section>
+
+    <section id="tab-versions" class="tab-panel">
+      <button id="run-versions-btn">List versions</button>
+      <div id="diff-row">
+        <input id="diff-a-input" type="text" placeholder="v001">
+        <input id="diff-b-input" type="text" placeholder="v002">
+        <button id="run-diff-btn">Diff</button>
+      </div>
+      <div id="revert-row">
+        <input id="revert-input" type="text" placeholder="v001">
+        <button id="run-revert-btn">Revert to...</button>
+      </div>
+      <pre id="versions-output" class="console"></pre>
     </section>
 
     <section id="tab-say" class="tab-panel">

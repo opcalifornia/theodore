@@ -107,9 +107,15 @@ no changes to the `theodore` Python package at all.
 
 ## Extending it
 
-The MVP tabs (Segments, Dupes, Gaps, Say/Pending) intentionally cover a
-slice of the CLI, not all of it -- `delivery`/`peaks`, `find`, `learn`,
-`versions`/`diff`/`revert`, and `multicam` aren't wired into the UI yet.
-Each one is the same shape as what's here: either a `readJSONFile` call
-for something Theodore already writes to disk, or a `run([...])` call for
-something that needs a live CLI invocation.
+The tabs (Segments, Dupes, Gaps, Delivery, Find, Learn, Versions,
+Say/Pending) cover every CLI command except `multicam` and the v1
+ingest/transcribe/markers pipeline, which are one-time-per-subject setup
+steps rather than things an editor reaches for repeatedly while cutting.
+Every action tab follows the same shape: `bindRunButton()` in
+`js/renderer.js` builds an argv array and hands it to
+`window.theodore.run(...)`, which round-trips to `theodore_bridge.js`'s
+`runTheodore()` -- no new bridge code needed for a new command, just a
+button and an argv builder. Versions/Diff/Revert and Delivery/Peaks all
+share one output pane per tab, since they're closely related actions on
+the same underlying data; splitting that further is a UI call, not an
+architectural one.

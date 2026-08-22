@@ -114,6 +114,24 @@ function formatRunResult(result) {
   return lines.join('\n') || '(no output)';
 }
 
+// Every "click a button, run a theodore command, show the output" tab
+// (Dupes, Gaps, Delivery, Learn, Versions) is the same three steps.
+// `buildArgs` returns the argv array to run, or null to silently no-op
+// (e.g. nothing selected yet, or the user cancelled a confirm()).
+// `afterRun` is for the rare case something else needs a refresh
+// afterward (revert changes the current edit version).
+function bindRunButton(buttonId, outputId, buildArgs, afterRun) {
+  el(buttonId).addEventListener('click', async () => {
+    const args = buildArgs();
+    if (args === null) return;
+    const out = el(outputId);
+    out.textContent = 'Running...';
+    const result = await window.theodore.run(args);
+    out.textContent = formatRunResult(result);
+    if (afterRun) await afterRun();
+  });
+}
+
 async function init() {
   el('project-select').addEventListener('change', async (e) => {
     state.project = e.target.value;
@@ -129,19 +147,51 @@ async function init() {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   }
 
-  el('run-dupes-btn').addEventListener('click', async () => {
-    if (!state.project || !state.subject) return;
-    const out = el('dupes-output');
-    out.textContent = 'Running...';
-    const result = await window.theodore.run(['dupes', '--project', state.project, '--subject', state.subject]);
-    out.textContent = formatRunResult(result);
+  const requireSubject = (command) => () => {
+    if (!state.project || !state.subject) return null;
+    return [command, '--project', state.project, '--subject', state.subject];
+  };
+
+  bindRunButton('run-dupes-btn', 'dupes-output', requireSubject('dupes'));
+  bindRunButton('run-gaps-btn', 'gaps-output', requireSubject('gaps'));
+  bindRunButton('run-delivery-btn', 'delivery-output', requireSubject('delivery'));
+  bindRunButton('run-peaks-btn', 'delivery-output', requireSubject('peaks'));
+  bindRunButton('run-learn-btn', 'learn-output', requireSubject('learn'));
+
+  bindRunButton('run-versions-btn', 'versions-output', () => {
+    if (!state.project) return null;
+    return ['versions', '--project', state.project];
   });
 
-  el('run-gaps-btn').addEventListener('click', async () => {
-    if (!state.project || !state.subject) return;
-    const out = el('gaps-output');
-    out.textContent = 'Running...';
-    const result = await window.theodore.run(['gaps', '--project', state.project, '--subject', state.subject]);
+  bindRunButton('run-diff-btn', 'versions-output', () => {
+    const a = el('diff-a-input').value.trim();
+    const b = el('diff-b-input').value.trim();
+    if (!state.project || !a || !b) return null;
+    return ['diff', a, b, '--project', state.project];
+  });
+
+  bindRunButton('run-revert-btn', 'versions-output', () => {
+    const v = el('revert-input').value.trim();
+    if (!state.project || !v) return null;
+    // Non-destructive by design (edits.revert() forks a new version forward,
+    // never deletes history) -- still a real persisted change, so confirm.
+    if (!confirm(`Revert to ${v}? This forks a new version on top of it and makes that the current one.`)) {
+      return null;
+    }
+    return ['revert', v, '--project', state.project];
+  }, refreshPending);
+
+  el('find-btn').addEventListener('click', async () => {
+    if (!state.project) return;
+    const query = el('find-input').value.trim();
+    if (!query) return;
+    const args = ['find', query, '--project', state.project];
+    if (el('find-scope-subject').checked && state.subject) {
+      args.push('--subject', state.subject);
+    }
+    const out = el('find-output');
+    out.textContent = 'Searching...';
+    const result = await window.theodore.run(args);
     out.textContent = formatRunResult(result);
   });
 

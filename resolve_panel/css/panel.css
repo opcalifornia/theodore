@@ -64,8 +64,14 @@ th { color: #999; font-weight: normal; }
   margin-top: 8px;
 }
 
-#say-row { display: flex; gap: 8px; margin-bottom: 12px; }
-#say-input { flex: 1; }
+#say-row, #find-row, #diff-row, #revert-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+#say-input, #find-input { flex: 1; }
+#diff-a-input, #diff-b-input, #revert-input { width: 80px; }
 
 #pending-list { list-style: none; padding: 0; }
 #pending-list li { padding: 3px 0; border-bottom: 1px solid #2a2a2a; }
