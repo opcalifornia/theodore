@@ -12,6 +12,7 @@ import anthropic
 import click
 
 from theodore import commands, config, edits, registry
+from theodore.analyze import delivery as analyze_delivery
 from theodore.analyze.claude_client import CostTracker
 from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
@@ -252,8 +253,14 @@ def analyze(project: str, subject: str, model_tier: str, addressing: Optional[st
 
     segments_path.write_text(json.dumps(seg_result, indent=2))
 
+    delivery = analyze_delivery.load_delivery(subj_dir)
+    if delivery:
+        click.echo("   found delivery.json -- scoring selects with delivery as a second axis")
     with Stopwatch("Scoring selects"):
-        selects_result = run_selects(seg_result["segments"], transcript, model_tier=model_tier, cost_tracker=cost_tracker)
+        selects_result = run_selects(
+            seg_result["segments"], transcript, model_tier=model_tier,
+            cost_tracker=cost_tracker, delivery=delivery,
+        )
     (subj_dir / "selects.json").write_text(json.dumps(selects_result, indent=2))
 
     with Stopwatch("Tagging themes"):
@@ -284,6 +291,71 @@ def _load_analysis(subj_dir: Path, subject: str) -> dict:
     if not path.exists():
         raise click.ClickException(f"No analysis for '{subject}' -- run `theodore analyze` first.")
     return json.loads(path.read_text())
+
+
+def _find_subject_wav(subj_dir: Path, subject: str) -> Path:
+    wavs = sorted((subj_dir / "audio").glob("*.wav"))
+    if not wavs:
+        raise click.ClickException(f"No extracted audio for '{subject}' -- run `theodore ingest` first.")
+    return wavs[0]
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+def delivery(project: str, subject: str):
+    """Extract delivery (prosody) profiles: pitch, energy, pauses, onset
+    delay, jitter/shimmer, scored relative to this subject's own baseline.
+
+    Needs `theodore analyze` to have run at least once already (it profiles
+    the segments analyze produced). Re-run `theodore analyze` afterward to
+    have Selects re-score with delivery as a second axis.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+    wav_path = _find_subject_wav(subj_dir, subject)
+
+    with Stopwatch(f"Extracting delivery profiles from {wav_path.name}"):
+        result = analyze_delivery.analyze_delivery(wav_path, transcript, analysis)
+    out = analyze_delivery.save_delivery(result, subj_dir)
+
+    scored = sum(1 for s in result["segments"].values() if s.get("divergence") is not None)
+    click.echo(f"   {len(result['segments'])} segments profiled, {scored} with a usable baseline")
+    click.echo(f"\nWrote {out}\nRe-run `theodore analyze --project {project} --subject {subject}` "
+               "to have Selects re-score with delivery as a second axis.")
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+@click.option("--limit", default=10, type=int, help="How many segments to show.")
+def peaks(project: str, subject: str, limit: int):
+    """Segments ranked by how far their delivery diverges from this
+    subject's own baseline -- per the spec, "almost always your best
+    footage and the hardest to find by reading." Good first read on new
+    footage.
+    """
+    project_dir, reg = _load_registry(project)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    analysis = _load_analysis(subj_dir, subject)
+    delivery_data = analyze_delivery.load_delivery(subj_dir)
+    if delivery_data is None:
+        raise click.ClickException(f"No delivery data for '{subject}' -- run `theodore delivery` first.")
+
+    ranked = analyze_delivery.rank_by_divergence(delivery_data, analysis)
+    if not ranked:
+        click.echo("No segments have enough of a baseline yet to rank.")
+        return
+
+    for row in ranked[:limit]:
+        click.echo(f"\n[{row['divergence']:.2f}] {row['segment_id']} -- {row['label']}")
+        for line in row["descriptor"].splitlines()[1:]:
+            click.echo(f"  {line}")
 
 
 @cli.command()

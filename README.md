@@ -6,16 +6,23 @@ Claude to identify question/answer structure and story-worthy content, and
 writes that intelligence directly into a DaVinci Resolve Studio timeline as
 markers — plus exports human-readable notes.
 
-This is v1, plus a v1.5 rough-assembly layer and the v2.0 multi-subject
-registry. **Currently built and tested:** ingest → transcribe → analyze →
-markers → notes (v1); trim proposals, the `review.html` approval page, and
-assembly ordering strategies (v1.5 — `assembly/builder.py`, the module that
-actually writes a new timeline, is not yet built); and the project registry
-with immutable per-subject segment ids and canonical question-guide
-matching (v2.0 Part 1). **Not yet built:** multicam sync, captions/quotes
-export, the natural-language command layer and `theodore chat` REPL,
-delivery (prosody) analysis, and semantic search. Module boundaries are
-deliberately kept clean so all of that is additive, not a rewrite.
+This is v1, the v1.5 rough-assembly layer, and v2.0's conversational editor
+through delivery analysis. **Currently built and tested:** ingest →
+transcribe → analyze → markers → notes (v1); trim proposals, `review.html`,
+assembly ordering strategies, and real Resolve timeline construction
+(v1.5 — only `resolve/multicam.py` is still unbuilt); the multi-subject
+registry with immutable ids and canonical question-guide matching, versioned
+edit lists (`theodore build`/`versions`/`revert`/`diff`), the natural-language
+command layer (`theodore say`/`pending`/`chat`), and delivery/prosody analysis
+feeding a second axis into the Selects pass (`theodore delivery`/`peaks`)
+(v2.0 Parts 1-3). **Known limitation:** `theodore build` can't yet assemble a
+sequence spanning more than one subject (rejected with a clear error, not
+silently mis-built) — the "move haylee.q03 after marcus.q04" cross-subject
+case needs `assembly/plan.py` to work across multiple transcripts, which is
+follow-up work. **Not yet built:** redundancy detection, semantic search,
+coverage/gap analysis, duration targeting, the learning loop, client export,
+and voice control. Module boundaries are deliberately kept clean so all of
+that is additive, not a rewrite.
 
 ## Requirements
 
@@ -32,6 +39,9 @@ deliberately kept clean so all of that is additive, not a rewrite.
 - [ffmpeg](https://ffmpeg.org/) (ffmpeg + ffprobe on your `PATH`)
 - An [Anthropic API key](https://console.anthropic.com/) and a
   [Deepgram API key](https://console.deepgram.com/)
+- `theodore delivery`/`peaks` need `numpy` and `praat-parselmouth` (installed
+  with everything else via `pip install -e .`) — no separate Praat install
+  or API key required, it's a pure-Python acoustic analysis library.
 
 ## Setup
 
@@ -140,6 +150,7 @@ interleaving every subject's activity chronologically.
 ## CLI reference
 
 ```
+# v1 -- ingest through markers/notes
 theodore ingest <file|dir> --project <name> --subject <id> [--display-name <name>]
 theodore transcribe --project <name> --subject <id> [--interviewer <speaker_id>] [--force]
 theodore analyze --project <name> --subject <id> [--model-tier economy|standard|premium] [--addressing sequential|canonical] [--allow-cost-over]
@@ -148,6 +159,23 @@ theodore notes --project <name> --subject <id>
 theodore ids --project <name> --subject <id>          # immutable id -> question mapping
 theodore run <file> --project <name> --subject <id>    # full pipeline, one command
 theodore status --project <name> [--subject <id>]      # which stages are complete/cached
+
+# v1.5 -- rough assembly
+theodore review --project <name> --subject <id> [--mode ...] [--exclude ids]   # review.html before building anything
+theodore captions --project <name> --subject <id> [--srt] [--vtt] [--import-to-resolve]
+theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorted by strength
+
+# v2.0 -- versioned edit lists + the conversational editor
+theodore build --project <name> --subject <id> [--mode ...] [--dry-run]   # seed/rebuild a real timeline
+theodore untrim --project <name> --subject <id>        # rebuild the current edit list at full length
+theodore versions / revert <version> / diff <v1> <v2> --project <name>
+theodore say "move haylee.q03 after marcus.q04" --project <name>
+theodore pending --project <name>                       # what's queued + resulting order
+theodore chat --project <name>                          # interactive REPL over `say`
+
+# v2.0 Part 3 -- delivery (prosody) analysis
+theodore delivery --project <name> --subject <id>       # pitch/energy/pause/onset-delay profiles
+theodore peaks --project <name> --subject <id>          # segments ranked by divergence from baseline
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see

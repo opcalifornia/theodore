@@ -22,7 +22,7 @@ def _utterance_index(uid: str) -> int:
     return int(uid[1:])
 
 
-def _format_segment(seg: dict, utterances: list[dict]) -> str:
+def _format_segment(seg: dict, utterances: list[dict], delivery: Optional[dict] = None) -> str:
     lo = _utterance_index(seg["answer_start_utterance"])
     hi = _utterance_index(seg["answer_end_utterance"])
     span = [u for u in utterances if lo <= _utterance_index(u["id"]) <= hi]
@@ -30,6 +30,17 @@ def _format_segment(seg: dict, utterances: list[dict]) -> str:
     lines = [f"Segment {seg['id']} -- Q: {seg.get('question_text') or '(volunteered)'}"]
     for u in span:
         lines.append(f"  [{u['id']}] ({u['start']:.2f}-{u['end']:.2f}): {u['text']}")
+
+    # Delivery (v2.0 Part 3): measured, speaker-relative acoustic facts --
+    # never raw audio, never an unqualified adjective -- so the strength
+    # judgment below can weigh HOW something was said alongside WHAT was
+    # said, without the well-documented failure mode where a model's
+    # "prosody" read is actually just tracking the words.
+    profile = (delivery or {}).get("segments", {}).get(seg["id"])
+    if profile and profile.get("descriptor"):
+        lines.append("")
+        lines.append(profile["descriptor"])
+
     return "\n".join(lines)
 
 
@@ -39,6 +50,7 @@ def run_selects(
     *,
     model_tier: str,
     cost_tracker: CostTracker,
+    delivery: Optional[dict] = None,
     client: Optional[anthropic.Anthropic] = None,
 ) -> dict:
     if not segments:
@@ -53,7 +65,7 @@ def run_selects(
     chunks = chunk_items(segments)
     for i, chunk in enumerate(chunks, start=1):
         logger.info("Selects: chunk %d/%d (%d segments)", i, len(chunks), len(chunk))
-        user = "\n\n".join(_format_segment(seg, utterances) for seg in chunk)
+        user = "\n\n".join(_format_segment(seg, utterances, delivery) for seg in chunk)
         result = call_json(
             client, pass_name="selects", model=model, system=system, user=user,
             max_tokens=MAX_TOKENS, cost_tracker=cost_tracker,

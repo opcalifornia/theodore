@@ -167,6 +167,27 @@ def test_run_selects_empty_segments_makes_no_api_call():
     assert client.messages.calls == []
 
 
+def test_run_selects_includes_delivery_descriptor_when_present():
+    client = FakeClient([_json_response({"selects": [{"segment_id": "s001", "strength": 0.8, "delivery_strength": 0.9}]})])
+    segments = [{"id": "s001", "answer_start_utterance": "u002", "answer_end_utterance": "u002", "question_text": "Q?"}]
+    delivery = {"segments": {"s001": {"descriptor": "Segment s001 delivery profile:\n  - Onset delay: 2.3s before beginning to answer"}}}
+
+    result = run_selects(segments, _TRANSCRIPT, model_tier="standard", cost_tracker=CostTracker(), delivery=delivery, client=client)
+
+    assert result["selects"][0]["delivery_strength"] == 0.9
+    user_msg = client.messages.calls[0]["messages"][0]["content"]
+    assert "delivery profile" in user_msg
+    assert "Onset delay: 2.3s" in user_msg
+
+
+def test_run_selects_without_delivery_data_omits_descriptor():
+    client = FakeClient([_json_response({"selects": [{"segment_id": "s001", "strength": 0.8}]})])
+    segments = [{"id": "s001", "answer_start_utterance": "u002", "answer_end_utterance": "u002", "question_text": "Q?"}]
+    run_selects(segments, _TRANSCRIPT, model_tier="standard", cost_tracker=CostTracker(), client=client)
+    user_msg = client.messages.calls[0]["messages"][0]["content"]
+    assert "delivery profile" not in user_msg
+
+
 def test_run_themes_two_pass_vocabulary_then_tagging():
     segments = [{"id": "s001", "question_text": "Q?", "answer_summary": "A."}]
     vocab_response = _json_response({"themes": [{"id": "t01", "label": "Home", "description": "About home."}]})
