@@ -28,11 +28,14 @@ SURPRISE_HIGH_THRESHOLD = 0.7
 
 def _subject_versions(project_dir, subject: str) -> list[edits.EditList]:
     """Every stored edit list version belonging to `subject` alone, oldest
-    first. edits/ is one directory per PROJECT, not per subject -- but a
-    build is already rejected outright if it would mix subjects (see
-    cli._reject_foreign_subjects), so every version's segment ids are
-    either all one subject's or none of them; filtering by prefix is
-    exact, not a heuristic."""
+    first. edits/ is one directory per PROJECT, not per subject, and a
+    version may now legitimately span subjects (`theodore build` assembles
+    those). Filtering by prefix is still exact rather than a heuristic --
+    ids carry their subject -- and a mixed version is deliberately skipped
+    rather than partially counted: "what did the editor keep of what I
+    proposed for this subject?" is only answerable from a version that is
+    unambiguously about that subject, since a cross-subject cut drops
+    segments for reasons that have nothing to do with their own strength."""
     result = []
     for version in edits.list_versions(project_dir):
         edit_list = edits.load(project_dir, version)

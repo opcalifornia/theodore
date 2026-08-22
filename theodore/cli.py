@@ -904,20 +904,136 @@ def _connect_or_die() -> resolve_connection.ResolveHandles:
         ) from exc
 
 
-def _reject_foreign_subjects(segment_ids: list, subject: str) -> None:
-    """Raises before anything is persisted if `segment_ids` reaches outside
-    `subject` -- checked BEFORE a pending queue or fresh ordering pass is
-    confirmed into a real edit list version, not after, so a doomed build
-    never leaves a mixed-subject version sitting in the history for a
-    subsequent plain `theodore build` to trip over."""
-    foreign = [sid for sid in segment_ids if not sid.startswith(f"{subject}.")]
-    if foreign:
-        raise click.ClickException(
-            f"This would reference segment(s) belonging to another subject: "
-            f"{', '.join(foreign[:5])}. Cross-subject builds aren't supported by "
-            "`theodore build` yet -- for now, an edit list built with `theodore build` must "
-            "stay within one subject's own segments."
+def _referenced_subjects(segment_ids: list, home_subject: str) -> list:
+    """The distinct subjects a sequence reaches into, in first-appearance
+    order. An id with no ``subject.`` prefix (a pre-registry project's
+    "s001") has no subject of its own and counts as the home subject -- the
+    only one in play for such a project."""
+    out: list = []
+    for sid in segment_ids:
+        subject = assembly_plan.subject_of_segment(sid) if "." in str(sid) else home_subject
+        if subject not in out:
+            out.append(subject)
+    return out
+
+
+def _require_build_subjects(
+    project_dir: Path,
+    reg: dict,
+    segment_ids: list,
+    home_subject: str,
+    home_transcript: dict,
+    home_analysis: dict,
+) -> dict:
+    """Load and validate every subject an edit list reaches into.
+
+    This replaces v2's outright refusal of cross-subject edit lists. The
+    registry was multi-subject and segment ids carried their subject's
+    prefix from the start; what was missing was `theodore build` resolving
+    each id against its OWN subject's transcript, analysis and media, which
+    ``assembly.plan.build_multi_subject_plan`` and ``assembly.builder``'s
+    per-subject media bindings now do.
+
+    Called BEFORE a pending queue or a fresh ordering pass is confirmed into
+    a real edit list version -- keeping the ordering the refusal it replaces
+    was careful about, so a build that cannot work never leaves a version
+    behind for a later plain `theodore build` to trip over.
+
+    Returns ``{subject_id: (transcript, analysis)}`` in first-appearance
+    order, reusing `home_subject`'s already-loaded pair rather than reading
+    it twice. Every failure is a ClickException that names the fix -- an
+    unregistered subject, or one registered but not yet transcribed or
+    analyzed -- never a KeyError and never a quietly short assembly.
+    """
+    referenced = _referenced_subjects(segment_ids, home_subject)
+    if not referenced:
+        # An empty sequence still belongs to the subject that asked for it;
+        # the empty-plan error downstream is the useful message here.
+        return {home_subject: (home_transcript, home_analysis)}
+
+    loaded: dict = {}
+    for subject in referenced:
+        if subject == home_subject:
+            loaded[subject] = (home_transcript, home_analysis)
+            continue
+        subj_dir = _require_subject_dir(project_dir, reg, subject)
+        loaded[subject] = (
+            _load_transcript(subj_dir, subject),
+            _load_analysis(subj_dir, subject),
         )
+
+    if len(loaded) > 1:
+        bare = sorted({str(sid) for sid in segment_ids if "." not in str(sid)})
+        if bare:
+            raise click.ClickException(
+                f"This sequence mixes subjects but also contains unprefixed segment id(s): "
+                f"{', '.join(bare[:5])}. An id without a 'subject.' prefix predates the "
+                "multi-subject registry, so there is no way to tell which subject's footage "
+                "it means -- and Theodore will not guess when the answer decides which "
+                "camera original a cut comes from. Re-run `theodore analyze` for that "
+                "subject to give its segments prefixed ids."
+            )
+    return loaded
+
+
+def _plan_for_sequence(
+    loaded: dict,
+    segment_ids: list,
+    *,
+    subject: str,
+    transcript: dict,
+    analysis: dict,
+    trims: dict,
+    handle_frames: int,
+) -> tuple:
+    """Plan `segment_ids`, single-subject or across subjects, and return
+    ``(plan, source_kwargs)`` -- the kwargs naming the sources for whichever
+    of ``describe_build``/``build_timeline`` runs next.
+
+    One subject (the overwhelmingly common case) keeps the original
+    single-transcript path exactly as it was. Anything reaching another
+    subject's segments plans per-subject instead, after refusing a
+    mixed-frame-rate assembly here, before Resolve is even connected to --
+    ``build_timeline`` re-checks it regardless, so this is the friendly
+    early message rather than the guard.
+
+    `loaded` comes from :func:`_require_build_subjects`, which every caller
+    runs before persisting anything.
+    """
+    if list(loaded) == [subject]:
+        plan = assembly_plan.build_plan(
+            transcript, analysis, trims, segment_ids, handle_frames=handle_frames,
+        )
+        return plan, {"transcript": transcript, "analysis": analysis}
+
+    sources = {
+        sid: assembly_plan.SubjectSources(subject_transcript, subject_analysis, trims)
+        for sid, (subject_transcript, subject_analysis) in loaded.items()
+    }
+    try:
+        assembly_builder.common_source_fps(sources)
+    except assembly_builder.BuilderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    plan = assembly_plan.build_multi_subject_plan(
+        sources, segment_ids, handle_frames=handle_frames,
+    )
+    click.echo(f"   cross-subject build: {', '.join(loaded)}")
+    return plan, {"sources": sources}
+
+
+def _merged_base_trims(project_dir: Path, subjects) -> dict:
+    """Every involved subject's saved trim proposals, in one dict.
+
+    Segment ids carry their subject's prefix and so are unique across the
+    whole project, which makes one flat dict unambiguous -- and it is
+    already the shape ``edits.apply_overrides_to_trims`` and
+    ``assembly.plan`` both expect. For a single-subject build this is
+    exactly ``assembly_trim.load_trims()`` on that one subject, unchanged.
+    """
+    merged: dict = {}
+    for subject in subjects:
+        merged.update(assembly_trim.load_trims(registry.subject_dir(project_dir, subject)))
+    return merged
 
 
 @cli.command()
@@ -994,7 +1110,11 @@ def multicam(project: str, subject: str, check_resolve: bool):
 
 @cli.command()
 @click.option("--project", required=True)
-@click.option("--subject", required=True, help="Whose segments this build covers. Cross-subject edit lists aren't supported yet.")
+@click.option("--subject", required=True,
+              help="The home subject: whose analysis a --mode ordering pass runs on, and what "
+                   "the new timeline is named after. An edit list may reference other "
+                   "subjects' segments too; each clip is cut from its own subject's media, "
+                   "provided every subject involved shares one frame rate.")
 @click.option("--mode", type=MODE_CHOICE, default=None,
               help="Run a fresh ordering pass and seed/derive a new edit version from it. Omit to rebuild the CURRENT version as-is.")
 @click.option("--handles", default=config.DEFAULT_HANDLE_FRAMES, type=int)
@@ -1017,6 +1137,13 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
     the current one). Without --mode, rebuilds the CURRENT version exactly
     as it stands -- this is what `theodore say` leads to after queued
     commands are confirmed.
+
+    An edit list may span subjects ("move haylee.q03 after marcus.q04"):
+    each clip is cut from its own subject's source media at its own frame
+    offsets and annotated from its own analysis. Every subject involved must
+    share one frame rate, since a Resolve timeline has only one -- a mixed
+    rate assembly is refused before anything is created rather than built
+    with half its cuts in the wrong place.
     """
     if target is not None and mode is None:
         raise click.ClickException("--target only makes sense with --mode -- it drops segments from a fresh "
@@ -1046,7 +1173,10 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
         )
         segment_ids = [sid for sid in order if sid not in excluded]
         version_label = mode
-        _reject_foreign_subjects(segment_ids, subject)
+        # An ordering pass runs on one subject's analysis, so its ids are
+        # that subject's by construction -- this is the invariant check, and
+        # the place the other two branches genuinely resolve foreign ids.
+        loaded = _require_build_subjects(project_dir, reg, segment_ids, subject, transcript, analysis)
 
         if target is not None:
             target_seconds = _parse_duration_seconds(target)
@@ -1083,8 +1213,8 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
         if pending is not None:
             segment_ids = pending.segment_ids
             version_label = "(pending)"
-            _reject_foreign_subjects(segment_ids, subject)
-            base_trims = assembly_trim.load_trims(subj_dir)
+            loaded = _require_build_subjects(project_dir, reg, segment_ids, subject, transcript, analysis)
+            base_trims = _merged_base_trims(project_dir, loaded)
             trims = edits.apply_overrides_to_trims(pending, base_trims)
             if not dry_run:
                 current = edits.load_current(project_dir, reg)
@@ -1105,25 +1235,31 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
                 )
             segment_ids = edit_list.segment_ids
             version_label = edit_list.version
-            _reject_foreign_subjects(segment_ids, subject)
-            base_trims = assembly_trim.load_trims(subj_dir)
+            loaded = _require_build_subjects(project_dir, reg, segment_ids, subject, transcript, analysis)
+            base_trims = _merged_base_trims(project_dir, loaded)
             trims = edits.apply_overrides_to_trims(edit_list, base_trims)
 
-    plan = assembly_plan.build_plan(transcript, analysis, trims, segment_ids, handle_frames=handles)
+    plan, source_kwargs = _plan_for_sequence(
+        loaded, segment_ids, subject=subject, transcript=transcript,
+        analysis=analysis, trims=trims, handle_frames=handles,
+    )
 
     if dry_run:
         click.echo(assembly_builder.describe_build(
-            plan, transcript=transcript, project=project, subject=subject, mode=version_label,
-            analysis=analysis, rationale=rationale, handle_frames=handles,
+            plan, project=project, subject=subject, mode=version_label,
+            rationale=rationale, handle_frames=handles, **source_kwargs,
         ))
         return
 
     handles_ = _connect_or_die()
-    multicam = assembly_builder.load_multicam(subj_dir / "multicam.json")
+    multicam = assembly_builder.merge_multicam(
+        assembly_builder.load_multicam(registry.subject_dir(project_dir, sid) / "multicam.json")
+        for sid in loaded
+    )
     result = assembly_builder.build_timeline(
-        handles_, plan, transcript=transcript, analysis=analysis,
+        handles_, plan,
         project=project, subject=subject, mode=version_label,
-        trims=trims, rationale=rationale, multicam=multicam,
+        trims=trims, rationale=rationale, multicam=multicam, **source_kwargs,
     )
     if cost_tracker.calls:
         click.echo(f"Estimated cost this run:\n{cost_tracker.summary()}\n")
@@ -1136,7 +1272,11 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
 @click.option("--handles", default=config.DEFAULT_HANDLE_FRAMES, type=int)
 @click.option("--dry-run", is_flag=True)
 def untrim(project: str, subject: str, handles: int, dry_run: bool):
-    """Rebuild the current edit list's assembly at full (untrimmed) length."""
+    """Rebuild the current edit list's assembly at full (untrimmed) length.
+
+    Follows the edit list wherever it goes: a version spanning subjects is
+    rebuilt across them, at full length, exactly as `theodore build` would.
+    """
     project_dir, reg = _load_registry(project)
     _setup_logging(project_dir)
     subj_dir = _require_subject_dir(project_dir, reg, subject)
@@ -1146,19 +1286,27 @@ def untrim(project: str, subject: str, handles: int, dry_run: bool):
     edit_list = edits.load_current(project_dir, reg)
     order = edit_list.segment_ids if edit_list else [s["id"] for s in analysis["segments"]]
 
-    plan = assembly_builder.build_untrimmed_plan(transcript, analysis, order, handle_frames=handles)
+    # An empty trims dict IS the un-trimming: plan.py falls back to each
+    # segment's full clean range whenever it has no trims entry, which is
+    # what build_untrimmed_plan does for one subject and what passing {}
+    # through here does for any number of them.
+    loaded = _require_build_subjects(project_dir, reg, order, subject, transcript, analysis)
+    plan, source_kwargs = _plan_for_sequence(
+        loaded, order, subject=subject, transcript=transcript,
+        analysis=analysis, trims={}, handle_frames=handles,
+    )
 
     if dry_run:
         click.echo(assembly_builder.describe_build(
-            plan, transcript=transcript, project=project, subject=subject, mode="untrimmed",
-            analysis=analysis, handle_frames=handles,
+            plan, project=project, subject=subject, mode="untrimmed",
+            handle_frames=handles, **source_kwargs,
         ))
         return
 
     handles_ = _connect_or_die()
     result = assembly_builder.build_timeline(
-        handles_, plan, transcript=transcript, analysis=analysis,
-        project=project, subject=subject, mode="untrimmed",
+        handles_, plan, project=project, subject=subject, mode="untrimmed",
+        **source_kwargs,
     )
     click.echo(assembly_builder.format_result(result))
 
@@ -1217,7 +1365,9 @@ def diff_versions(version_a: str, version_b: str, project: str):
 
 
 def _subject_of_segment(segment_id: str) -> str:
-    return segment_id.split(".", 1)[0]
+    # One definition of "which subject owns this id", shared with the
+    # cross-subject planner that reads the same prefix.
+    return assembly_plan.subject_of_segment(segment_id)
 
 
 def _build_command_context(project_dir: Path, reg: dict):
