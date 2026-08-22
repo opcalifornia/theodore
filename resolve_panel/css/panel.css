@@ -8,6 +8,15 @@ body {
   background: #1e1e1e;
 }
 
+#error-banner {
+  background: #5c1f1f;
+  color: #ffd7d7;
+  padding: 10px 14px;
+  border-bottom: 1px solid #7a2a2a;
+  white-space: pre-wrap;
+}
+#error-banner.hidden { display: none; }
+
 #topbar {
   display: flex;
   justify-content: space-between;

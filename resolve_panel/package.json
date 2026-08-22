@@ -5,6 +5,7 @@
   "description": "DaVinci Resolve Studio Workflow Integration panel for Theodore.",
   "main": "main.js",
   "scripts": {
+    "start": "electron .",
     "test": "node --test"
   },
   "dependencies": {

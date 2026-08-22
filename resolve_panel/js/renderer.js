@@ -9,6 +9,31 @@ const state = { project: null, subject: null };
 
 const el = (id) => document.getElementById(id);
 
+// The single most likely first-run failure: no theodore-panel-config.json
+// yet (see README -- it's gitignored on purpose, copied from the .example
+// file and edited once per install). Every IPC call that touches
+// theodore_bridge.js can throw that same ConfigError, so every entry point
+// below is wrapped to show it here instead of leaving the panel silently
+// blank with no explanation -- which is worse than an error message.
+function showError(err) {
+  const banner = el('error-banner');
+  banner.textContent = String((err && err.message) || err);
+  banner.classList.remove('hidden');
+}
+
+function clearError() {
+  el('error-banner').classList.add('hidden');
+}
+
+async function safely(fn) {
+  try {
+    await fn();
+    clearError();
+  } catch (err) {
+    showError(err);
+  }
+}
+
 async function refreshProjects() {
   const projects = await window.theodore.listProjects();
   const select = el('project-select');
@@ -126,22 +151,32 @@ function bindRunButton(buttonId, outputId, buildArgs, afterRun) {
     if (args === null) return;
     const out = el(outputId);
     out.textContent = 'Running...';
-    const result = await window.theodore.run(args);
-    out.textContent = formatRunResult(result);
-    if (afterRun) await afterRun();
+    try {
+      const result = await window.theodore.run(args);
+      out.textContent = formatRunResult(result);
+      clearError();
+      if (afterRun) await afterRun();
+    } catch (err) {
+      // theodore.run() itself only throws before ever spawning a process
+      // (a missing/broken config, or a programming error in the args
+      // built above) -- an actual failed `theodore` command resolves with
+      // ok:false instead and is already shown via formatRunResult.
+      out.textContent = '(command did not run -- see error above)';
+      showError(err);
+    }
   });
 }
 
 async function init() {
-  el('project-select').addEventListener('change', async (e) => {
+  el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;
-    await refreshSubjects();
+    safely(refreshSubjects);
   });
-  el('subject-select').addEventListener('change', async (e) => {
+  el('subject-select').addEventListener('change', (e) => {
     state.subject = e.target.value;
-    await refreshAll();
+    safely(refreshAll);
   });
-  el('refresh-btn').addEventListener('click', refreshAll);
+  el('refresh-btn').addEventListener('click', () => safely(refreshAll));
 
   for (const btn of document.querySelectorAll('.tab-btn')) {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -191,8 +226,14 @@ async function init() {
     }
     const out = el('find-output');
     out.textContent = 'Searching...';
-    const result = await window.theodore.run(args);
-    out.textContent = formatRunResult(result);
+    try {
+      const result = await window.theodore.run(args);
+      out.textContent = formatRunResult(result);
+      clearError();
+    } catch (err) {
+      out.textContent = '(command did not run -- see error above)';
+      showError(err);
+    }
   });
 
   el('say-btn').addEventListener('click', async () => {
@@ -201,25 +242,44 @@ async function init() {
     if (!text) return;
     const out = el('say-output');
     out.textContent = 'Running...';
-    const result = await window.theodore.run(['say', text, '--project', state.project]);
-    out.textContent = formatRunResult(result);
-    el('say-input').value = '';
-    await refreshPending();
+    try {
+      const result = await window.theodore.run(['say', text, '--project', state.project]);
+      out.textContent = formatRunResult(result);
+      el('say-input').value = '';
+      clearError();
+      await refreshPending();
+    } catch (err) {
+      out.textContent = '(command did not run -- see error above)';
+      showError(err);
+    }
   });
 
   el('build-btn').addEventListener('click', async () => {
     if (!state.project || !state.subject) return;
     const out = el('say-output');
     out.textContent = 'Building...';
-    const result = await window.theodore.run(['build', '--project', state.project, '--subject', state.subject]);
-    out.textContent = formatRunResult(result);
-    await refreshPending();
+    try {
+      const result = await window.theodore.run(['build', '--project', state.project, '--subject', state.subject]);
+      out.textContent = formatRunResult(result);
+      clearError();
+      await refreshPending();
+    } catch (err) {
+      out.textContent = '(command did not run -- see error above)';
+      showError(err);
+    }
   });
 
-  const resolveProject = await window.theodore.currentResolveProjectName();
-  el('resolve-project-name').textContent = resolveProject || '(not connected)';
+  // Each independent: Resolve not being connected must never prevent the
+  // project list (which needs only the config file, not Resolve at all)
+  // from loading, and vice versa.
+  try {
+    const resolveProject = await window.theodore.currentResolveProjectName();
+    el('resolve-project-name').textContent = resolveProject || '(not connected)';
+  } catch (err) {
+    el('resolve-project-name').textContent = '(not connected)';
+  }
 
-  await refreshProjects();
+  await safely(refreshProjects);
 }
 
 init();
