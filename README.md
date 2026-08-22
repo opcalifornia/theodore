@@ -11,8 +11,8 @@ through delivery analysis. **Currently built and tested:** ingest →
 transcribe → analyze → markers → notes (v1); trim proposals, `review.html`,
 assembly ordering strategies, real Resolve timeline construction, and
 multicam angle detection (`theodore multicam`) (v1.5 — complete); the
-multi-subject
-registry with immutable ids and canonical question-guide matching, versioned
+multi-subject registry with immutable ids and canonical question-guide
+matching, versioned
 edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
 (`theodore delivery`/`peaks`), redundancy detection across near-duplicate
