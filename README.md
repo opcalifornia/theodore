@@ -19,13 +19,18 @@ answers (`theodore dupes`), cross-subject plain-language search
 (`theodore find`), the rejects/gap views (`theodore rejects`/`gaps`),
 duration targeting (`theodore build --target`), and the learning loop
 comparing Selects' predictions against real editorial decisions
-(`theodore learn`) (v2.0 Parts 1-4 steps 7-11). **Known limitation:**
-`theodore build` can't yet assemble a sequence spanning more than one
-subject (rejected with a clear error, not silently mis-built) — the "move
-haylee.q03 after marcus.q04" cross-subject case needs `assembly/plan.py`
-to work across multiple transcripts, which is follow-up work. **Not yet
-built:** client export and voice control. Module boundaries are
-deliberately kept clean so all of
+(`theodore learn`) (v2.0 Parts 1-4 steps 7-11), and **cross-subject
+assembly**: `theodore build` now assembles a sequence spanning several
+subjects, so "move haylee.q03 after marcus.q04" builds one real timeline in
+which each clip is cut from its own subject's source media, at its own frame
+offsets, with markers annotated from its own subject's analysis. **The one
+requirement is that every subject involved shares a frame rate** — a Resolve
+timeline has exactly one, so an assembly mixing 23.976 and 29.97 footage is
+refused with a message naming each subject and its rate, before anything is
+created in Resolve, rather than built with half its cuts in the wrong place.
+Conform the odd footage out and re-ingest it, or build those subjects as
+separate timelines. **Not yet built:** client export and voice control.
+Module boundaries are deliberately kept clean so all of
 that is additive, not a rewrite.
 
 ## Requirements
@@ -147,6 +152,26 @@ which guide questions that subject never actually answered — the
 complement to Selects telling you what's good: what's weak, and what's
 missing.
 
+`theodore build` assembles edit lists that span subjects. `--subject` names
+the *home* subject — whose analysis a `--mode` ordering pass runs on, and
+what the new timeline is named after — but the sequence itself may reference
+any registered subject's segments, and `theodore say "move haylee.q03 after
+marcus.q04"` produces exactly such a sequence. Each id resolves against its
+own subject's transcript, analysis and trims, so each clip is cut from that
+subject's own source media at that media's own embedded start timecode (one
+subject's 01:00:00:00 dailies and another's 00:00:00:00 card offload get
+different frame origins on the same timeline), and each marker is annotated
+from the analysis the clip actually came from. Media is found-or-imported
+once per subject, not once per clip. A subject an edit list names but the
+project has never registered — or one registered without a transcript or
+analysis yet — is a clear error naming the fix, never a quietly short
+assembly. **Every subject involved must share one frame rate.** A Resolve
+timeline has exactly one native rate, and Theodore will not silently conform
+between rates, so a mixed-rate assembly is refused before any media is
+imported or any timeline created, with a message naming each subject and its
+rate. Single-subject builds are entirely unaffected and take the same code
+path they always did.
+
 `theodore build --mode <mode> --target <MM:SS|seconds>` fits a fresh
 assembly to a runtime budget by dropping the weakest-scoring segments
 (Selects strength, unscored counting as 0.0) until it's under target,
@@ -216,6 +241,8 @@ theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorte
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
+                                                       # --subject is the HOME subject; the edit list may span
+                                                       # subjects, provided they share one frame rate
 theodore untrim --project <name> --subject <id>        # rebuild the current edit list at full length
 theodore versions / revert <version> / diff <v1> <v2> --project <name>
 theodore say "move haylee.q03 after marcus.q04" --project <name>

@@ -8,6 +8,16 @@ is appended, the build verifies that the timeline Resolve considers
 getting that wrong would append an entire assembly into the editor's real
 cut.
 
+A plan may draw on more than one subject. Pass ``transcript``/``analysis``
+for the ordinary one-interview build, or ``sources={subject:
+SubjectSources}`` for one spanning several; each clip then resolves against
+its own subject's media, frame origin and analysis. Everything past
+:func:`_source_bundles` works off a single ``subject -> sources`` mapping,
+so there is one code path, not two. The one hard requirement is a shared
+frame rate: a Resolve timeline has exactly one, and
+:func:`common_source_fps` refuses a mixed-rate assembly before any Resolve
+call happens.
+
 This module knows nothing about where a plan came from. It takes an ordered
 ``list[AssemblyClip]`` and builds exactly that, so the same code serves an
 ordering-pass assembly and a rebuild from a persisted edit list:
@@ -77,7 +87,7 @@ from typing import Optional
 
 from theodore import config
 from theodore.assembly import plan as assembly_plan
-from theodore.assembly.plan import AssemblyClip
+from theodore.assembly.plan import AssemblyClip, SubjectSources
 from theodore.resolve import markers as resolve_markers
 from theodore.resolve import timecode as tc
 from theodore.resolve.connection import ResolveHandles
@@ -193,6 +203,146 @@ def timeline_name(project: str, subject: str, mode: str, *, timestamp: Optional[
 
 
 # --------------------------------------------------------------------------
+# Sources: one subject, or several
+# --------------------------------------------------------------------------
+#
+# Everything below works off ONE mapping from an AssemblyClip's `subject` to
+# that subject's SubjectSources, whichever way the caller supplied them:
+#
+#   single subject  ->  {None: SubjectSources(transcript, analysis, trims)}
+#   cross-subject   ->  {"haylee": ..., "marcus": ...}
+#
+# `None` is the key for a single-subject build because that is exactly what
+# plan.build_plan() leaves on every clip it makes, so the ordinary
+# one-interview path needs no special-casing anywhere past this point.
+
+def _source_bundles(
+    transcript: Optional[dict],
+    analysis: Optional[dict],
+    trims: Optional[dict],
+    sources: Optional[dict],
+) -> dict:
+    """Normalize build_timeline's two input shapes into that one mapping."""
+    if sources:
+        bundles = {}
+        for subject, entry in sources.items():
+            if not isinstance(entry, SubjectSources):
+                entry = SubjectSources(entry["transcript"], entry["analysis"], entry.get("trims") or {})
+            # None is the single-subject key and must survive as None -- this
+            # function is idempotent, so an already-normalized mapping can be
+            # passed back through it (build_timeline hands its own `bundles`
+            # to plan_edit_markers).
+            bundles[subject if subject is None else str(subject)] = entry
+        return bundles
+    if transcript is None or analysis is None:
+        raise BuilderError(
+            "No sources for this build: pass transcript= and analysis= for a "
+            "single-subject assembly, or sources={subject: SubjectSources(...)} "
+            "for one spanning several subjects."
+        )
+    return {None: SubjectSources(transcript, analysis, trims or {})}
+
+
+def _bundle_for(bundles: dict, clip: AssemblyClip) -> SubjectSources:
+    """The sources one clip resolves against, or a BuilderError naming the
+    mismatch.
+
+    This is where a plan and its sources are proved to belong together. A
+    cross-subject plan carries a real subject on every clip, so handing one
+    to a single-subject build (whose only key is None) fails HERE, before
+    any media is imported or any timeline created -- there is no path that
+    builds a multi-subject plan against one subject's media.
+    """
+    try:
+        return bundles[clip.subject]
+    except KeyError:
+        pass
+    if clip.subject is not None and set(bundles) == {None}:
+        raise BuilderError(
+            f"Segment {clip.segment_id} was planned against subject {clip.subject!r} "
+            "(assembly.plan.build_multi_subject_plan) but this build was given a single "
+            "transcript. Pass sources={subject: SubjectSources(...)} covering every "
+            "subject the plan reaches -- a cross-subject cut cannot be built from one "
+            "subject's media."
+        )
+    if clip.subject is None:
+        raise BuilderError(
+            f"Segment {clip.segment_id} was planned against a single transcript "
+            "(assembly.plan.build_plan) but this build was given per-subject sources. "
+            "Re-plan it with assembly.plan.build_multi_subject_plan()."
+        )
+    raise BuilderError(
+        f"Segment {clip.segment_id} belongs to subject {clip.subject!r}, which has no "
+        f"sources in this build. Subjects available here: "
+        f"{', '.join(sorted(str(k) for k in bundles)) or '(none)'}."
+    )
+
+
+def common_source_fps(bundles: dict, plan: Optional[list] = None):
+    """The single frame rate this assembly is built at.
+
+    A Resolve timeline has ONE native frame rate. Source media at a
+    different rate can only share it by being conformed, which changes
+    every frame number plan.py computed -- so an assembly drawing on two
+    subjects shot at different rates is refused here rather than built with
+    every cut from the second subject landing somewhere else.
+
+    This is deliberately NOT covered by ``allow_fps_mismatch``. That flag
+    lets an editor conform the whole assembly to a project rate they chose
+    on purpose, which is coherent; two source rates inside one plan is not
+    coherent at any project rate, because the plan's own frame numbers
+    already mix the two.
+
+    `plan` restricts the check to the subjects actually used (a subject
+    loaded but not drawn on can't misplace a cut). Pure -- no Resolve.
+    """
+    if plan is not None:
+        rates, seen = [], set()
+        for clip in plan:
+            if clip.subject in seen:
+                continue
+            seen.add(clip.subject)
+            rates.append((clip.subject, _bundle_for(bundles, clip).transcript["fps"]))
+    else:
+        rates = [(key, bundle.transcript["fps"]) for key, bundle in bundles.items()]
+
+    if not rates:
+        raise BuilderError("No sources to take a frame rate from.")
+
+    reference = rates[0][1]
+    conflicts = [(key, fps) for key, fps in rates if not _fps_matches(reference, fps)]
+    if conflicts:
+        listing = "\n".join(
+            f"  {key if key is not None else '(this build)'}: {fps}" for key, fps in rates
+        )
+        raise BuilderError(
+            "This assembly draws on subjects shot at different frame rates:\n"
+            f"{listing}\n"
+            "A Resolve timeline has one frame rate, and every in/out point in this plan "
+            "was computed in its own subject's frames -- building it would place every "
+            "cut from the other rate in the wrong spot. Theodore does not silently "
+            "conform between frame rates. Build these subjects as separate timelines, "
+            "or conform the odd footage out to the common rate and re-ingest it."
+        )
+    return reference
+
+
+def merge_multicam(parts) -> Optional[dict]:
+    """Fold several subjects' multicam.json dicts into one.
+
+    ``multicam_clip_for_source()`` looks a clip up by SOURCE PATH, so one
+    merged dict serves a cross-subject build without any per-subject
+    bookkeeping. Returns None when nothing usable was passed, which is the
+    normal case -- multicam is always optional.
+    """
+    groups: list = []
+    for part in parts:
+        if isinstance(part, dict):
+            groups.extend(_as_list(part.get("groups")))
+    return {"groups": groups} if groups else None
+
+
+# --------------------------------------------------------------------------
 # Pure planning: markers + dry-run description
 # --------------------------------------------------------------------------
 
@@ -214,14 +364,34 @@ def _trim_note(trim: Optional[dict]) -> Optional[str]:
     return "Trim: " + ", ".join(parts) if parts else None
 
 
+class _MarkerIndex:
+    """One subject's marker lookups, built once per subject rather than once
+    per clip."""
+
+    __slots__ = ("fps", "source_start_frame", "utterances_by_id", "segments_by_id",
+                 "selects_by_id", "themes_by_id", "assignments", "trims")
+
+    def __init__(self, sources: SubjectSources):
+        transcript, analysis = sources.transcript, sources.analysis
+        self.trims = sources.trims or {}
+        self.fps = transcript["fps"]
+        self.source_start_frame = tc.timecode_to_frames(transcript["start_timecode"], self.fps)
+        self.utterances_by_id = {u["id"]: u for u in transcript.get("utterances", [])}
+        self.segments_by_id = {s["id"]: s for s in analysis.get("segments", [])}
+        self.selects_by_id = {s["segment_id"]: s for s in analysis.get("selects", [])}
+        self.themes_by_id = {t["id"]: t for t in analysis.get("themes", [])}
+        self.assignments = analysis.get("theme_assignments", {})
+
+
 def plan_edit_markers(
     plan: list[AssemblyClip],
-    transcript: dict,
-    analysis: dict,
+    transcript: Optional[dict] = None,
+    analysis: Optional[dict] = None,
     *,
     mode: str = "chronological",
     trims: Optional[dict] = None,
     rationale: Optional[str] = None,
+    sources: Optional[dict] = None,
 ) -> list[EditMarker]:
     """One marker per edit point on the new assembly timeline. Pure -- no
     Resolve API is touched, so this is fully unit-testable and is also what
@@ -237,33 +407,38 @@ def plan_edit_markers(
     ``rationale`` (narrative mode only) is prepended to the FIRST marker's
     note and recorded in its customData, so the story logic is readable by
     clicking one marker rather than opening a script console.
-    """
-    trims = trims or {}
-    fps = transcript["fps"]
-    source_start_frame = tc.timecode_to_frames(transcript["start_timecode"], fps)
 
-    utterances_by_id = {u["id"]: u for u in transcript.get("utterances", [])}
-    segments_by_id = {s["id"]: s for s in analysis.get("segments", [])}
-    selects_by_id = {s["segment_id"]: s for s in analysis.get("selects", [])}
-    themes_by_id = {t["id"]: t for t in analysis.get("themes", [])}
-    assignments = analysis.get("theme_assignments", {})
+    Pass either ``transcript``/``analysis`` (one subject) or ``sources``
+    (several). With ``sources``, every clip is annotated from ITS OWN
+    subject's analysis -- question label, strength, themes and clean-range
+    frames all come from the interview that clip was actually cut from, so a
+    marker on a ``marcus.*`` clip never describes a ``haylee.*`` segment.
+    ``mode``, ``rationale`` and the running ``NN.`` numbering stay
+    assembly-wide.
+    """
+    bundles = _source_bundles(transcript, analysis, trims, sources)
+    indexes: dict = {}
 
     markers: list[EditMarker] = []
     for index, clip in enumerate(plan):
-        seg = segments_by_id.get(clip.segment_id)
-        sel = selects_by_id.get(clip.segment_id)
+        if clip.subject not in indexes:
+            indexes[clip.subject] = _MarkerIndex(_bundle_for(bundles, clip))
+        idx = indexes[clip.subject]
+
+        seg = idx.segments_by_id.get(clip.segment_id)
+        sel = idx.selects_by_id.get(clip.segment_id)
         strength = sel.get("strength") if sel else None
-        theme_ids = assignments.get(clip.segment_id, [])
-        theme_labels = [themes_by_id[t]["label"] for t in theme_ids if t in themes_by_id]
+        theme_ids = idx.assignments.get(clip.segment_id, [])
+        theme_labels = [idx.themes_by_id[t]["label"] for t in theme_ids if t in idx.themes_by_id]
 
         clean_start_frame = clean_end_frame = None
         if sel:
-            start_u = utterances_by_id.get(sel.get("clean_start_utterance"))
-            end_u = utterances_by_id.get(sel.get("clean_end_utterance"))
+            start_u = idx.utterances_by_id.get(sel.get("clean_start_utterance"))
+            end_u = idx.utterances_by_id.get(sel.get("clean_end_utterance"))
             if start_u:
-                clean_start_frame = source_start_frame + tc.seconds_to_frames(start_u["start"], fps)
+                clean_start_frame = idx.source_start_frame + tc.seconds_to_frames(start_u["start"], idx.fps)
             if end_u:
-                clean_end_frame = source_start_frame + tc.seconds_to_frames(end_u["end"], fps)
+                clean_end_frame = idx.source_start_frame + tc.seconds_to_frames(end_u["end"], idx.fps)
 
         if seg is None:
             # plan.py only emits clips for segments that exist in `analysis`,
@@ -281,9 +456,31 @@ def plan_edit_markers(
             note = resolve_markers.build_note(seg, sel, theme_labels)
             color = resolve_markers.choose_color(strength, seg.get("question_text") is None)
 
-        trim_line = _trim_note(trims.get(clip.segment_id))
+        trim_line = _trim_note(idx.trims.get(clip.segment_id))
         if trim_line:
             note = f"{note}\n{trim_line}" if note else trim_line
+
+        custom_data = {
+            "source": resolve_markers.MARKER_SOURCE_TAG,
+            "segment_id": clip.segment_id,
+            "strength": strength,
+            "clean_start_frame": clean_start_frame,
+            "clean_end_frame": clean_end_frame,
+            "theme_ids": theme_ids,
+            # Assembly-specific: which build this came from and how the
+            # source range maps onto the new timeline.
+            "assembly_mode": mode,
+            "order_index": index,
+            "source_in_frame": clip.source_in_frame,
+            "source_out_frame": clip.source_out_frame,
+            "timeline_in_frame": clip.timeline_in_frame,
+            "timeline_out_frame": clip.timeline_out_frame,
+        }
+        # Only on a cross-subject assembly, where "whose clip is this?" is a
+        # real question. A single-subject build's markers stay byte-identical
+        # to what every earlier version wrote.
+        if clip.subject is not None:
+            custom_data["subject"] = clip.subject
 
         markers.append(EditMarker(
             timeline_frame=clip.timeline_in_frame,
@@ -291,22 +488,7 @@ def plan_edit_markers(
             name=f"{index + 1:02d}. {name}"[:255],
             note=note,
             duration_frames=max(1, clip.duration_frames),
-            custom_data={
-                "source": resolve_markers.MARKER_SOURCE_TAG,
-                "segment_id": clip.segment_id,
-                "strength": strength,
-                "clean_start_frame": clean_start_frame,
-                "clean_end_frame": clean_end_frame,
-                "theme_ids": theme_ids,
-                # Assembly-specific: which build this came from and how the
-                # source range maps onto the new timeline.
-                "assembly_mode": mode,
-                "order_index": index,
-                "source_in_frame": clip.source_in_frame,
-                "source_out_frame": clip.source_out_frame,
-                "timeline_in_frame": clip.timeline_in_frame,
-                "timeline_out_frame": clip.timeline_out_frame,
-            },
+            custom_data=custom_data,
             segment_id=clip.segment_id,
         ))
 
@@ -321,7 +503,7 @@ def plan_edit_markers(
 def describe_build(
     plan: list[AssemblyClip],
     *,
-    transcript: dict,
+    transcript: Optional[dict] = None,
     name: Optional[str] = None,
     project: Optional[str] = None,
     subject: Optional[str] = None,
@@ -329,29 +511,45 @@ def describe_build(
     analysis: Optional[dict] = None,
     rationale: Optional[str] = None,
     handle_frames: Optional[int] = None,
+    sources: Optional[dict] = None,
 ) -> str:
     """The ``--dry-run`` report: what :func:`build_timeline` *would* do.
 
     Touches nothing -- no Resolve connection is needed or made. Takes the
     same keyword arguments as :func:`build_timeline` (minus the live-API
-    ones), so a caller can build one argument dict and use it for both.
+    ones), so a caller can build one argument dict and use it for both --
+    including ``sources`` for a cross-subject assembly, which lists every
+    subject's source file and labels each clip from its own analysis.
+
+    Raises BuilderError for a cross-subject plan whose subjects disagree on
+    frame rate: a dry run must report the same refusal the real build would,
+    not a plausible-looking table for a build that cannot happen.
     """
-    fps = transcript["fps"]
+    bundles = _source_bundles(transcript, analysis or {"segments": []}, None, sources)
+    fps = common_source_fps(bundles, plan or None)
     intended_name = name or timeline_name(
         project or "?", subject or "?", mode, timestamp="<timestamp>",
     )
     runtime = assembly_plan.total_runtime_frames(plan)
-    analysis = analysis or {"segments": []}
-    labels = {s["id"]: (s.get("question_label") or s["id"]) for s in analysis.get("segments", [])}
+    labels = {
+        s["id"]: (s.get("question_label") or s["id"])
+        for bundle in bundles.values()
+        for s in bundle.analysis.get("segments", [])
+    }
 
     lines = [
         "DRY RUN -- nothing has been written to Resolve.",
         "",
         f"  New timeline:  {intended_name}",
         f"  Order mode:    {mode}",
-        f"  Source file:   {transcript.get('source_file', '(unknown)')}",
-        f"  Frame rate:    {fps}",
     ]
+    if sources:
+        lines.append(f"  Subjects:      {len(bundles)} ({', '.join(sorted(str(k) for k in bundles))})")
+        for key in sorted(bundles, key=str):
+            lines.append(f"    {key}: {bundles[key].transcript.get('source_file', '(unknown)')}")
+    else:
+        lines.append(f"  Source file:   {bundles[None].transcript.get('source_file', '(unknown)')}")
+    lines.append(f"  Frame rate:    {fps}")
     if handle_frames is not None:
         lines.append(f"  Handles:       {handle_frames} frames each side")
     lines.append(f"  Clips:         {len(plan)}")
@@ -861,8 +1059,9 @@ def build_timeline(
     handles: ResolveHandles,
     plan: list[AssemblyClip],
     *,
-    transcript: dict,
-    analysis: dict,
+    transcript: Optional[dict] = None,
+    analysis: Optional[dict] = None,
+    sources: Optional[dict] = None,
     name: Optional[str] = None,
     project: Optional[str] = None,
     subject: Optional[str] = None,
@@ -909,8 +1108,20 @@ def build_timeline(
         list version ("v003"), or anything else; nothing branches on its
         value except that `rationale` is described as belonging to it.
     transcript, analysis:
-        Already-loaded dicts (not paths). ``transcript["source_file"]`` is
-        the media to find-or-import; ``analysis`` supplies marker text.
+        Already-loaded dicts (not paths) for a SINGLE-subject assembly.
+        ``transcript["source_file"]`` is the media to find-or-import;
+        ``analysis`` supplies marker text. Mutually exclusive with
+        `sources`.
+    sources:
+        ``{subject_id: SubjectSources}`` for an assembly spanning several
+        subjects -- the shape :func:`assembly.plan.build_multi_subject_plan`
+        plans against. Each clip is then placed from ITS OWN subject's
+        media, at ITS OWN subject's frame origin, and annotated from ITS OWN
+        subject's analysis; one find-or-import happens per distinct subject,
+        not per clip. Every involved subject must share one frame rate (see
+        :func:`common_source_fps`) -- a Resolve timeline has only one, and
+        that requirement is enforced here, before anything is created,
+        whatever the caller checked.
     trims:
         Optional, already-loaded trims dict. Used only to annotate markers
         with what trimming removed -- the frame math already consumed it in
@@ -950,7 +1161,12 @@ def build_timeline(
     if frame_origin not in FRAME_ORIGIN_MODES:
         raise ValueError(f"Unknown frame_origin {frame_origin!r}, expected one of {FRAME_ORIGIN_MODES}")
 
-    fps = transcript["fps"]
+    # Both input shapes collapse to one subject -> sources mapping, and the
+    # one frame rate the whole assembly is built at is settled here --
+    # before a single Resolve call, so a plan that mixes rates never gets
+    # far enough to import media, let alone create a timeline.
+    bundles = _source_bundles(transcript, analysis, trims, sources)
+    fps = common_source_fps(bundles, plan or None)
     result = BuildResult(
         timeline_name=name or timeline_name(project, subject, mode, timestamp=timestamp),
         clips_planned=len(plan),
@@ -977,44 +1193,68 @@ def build_timeline(
 
     _check_frame_rate(resolve_project, fps, result, allow_fps_mismatch)
 
-    source_path = transcript.get("source_file")
-    if not source_path:
-        raise BuilderError(
-            "This transcript has no 'source_file' -- Theodore can't tell which media to "
-            "build from. Re-run `theodore transcribe` for this subject."
-        )
+    # Every subject drawn on, in the order the assembly first reaches for
+    # them. Media is found-or-imported ONCE per subject, not once per clip.
+    used_keys = list(dict.fromkeys(clip.subject for clip in plan))
+
+    # Check every subject has media recorded before importing any of them,
+    # so a two-subject build with one bad transcript doesn't pull the good
+    # subject's footage into the pool on its way to failing.
+    for key in used_keys:
+        if not bundles[key].transcript.get("source_file"):
+            raise BuilderError(
+                f"The transcript for {key if key is not None else 'this build'} has no "
+                "'source_file' -- Theodore can't tell which media to build from. "
+                f"Re-run `theodore transcribe` for {key or 'this subject'}."
+            )
 
     # ---- Everything that can fail without side effects happens BEFORE the
     # ---- timeline is created, so a failure never leaves a half-built one.
-    media_item = find_or_import_media(media_pool, source_path, result)
+    bindings: dict = {}
+    for key in used_keys:
+        bundle = bundles[key]
+        source_path = bundle.transcript["source_file"]
+        media_item = find_or_import_media(media_pool, source_path, result)
 
-    multicam_name = multicam_clip_for_source(multicam, source_path)
-    if multicam_name:
-        mc_item = find_media_pool_item_by_name(media_pool, multicam_name)
-        if mc_item is not None:
-            media_item = mc_item
-            result.multicam_clips_used.append(multicam_name)
-            logger.info("Using multicam clip %r instead of the plain source clip", multicam_name)
+        multicam_name = multicam_clip_for_source(multicam, source_path)
+        if multicam_name:
+            mc_item = find_media_pool_item_by_name(media_pool, multicam_name)
+            if mc_item is not None:
+                media_item = mc_item
+                result.multicam_clips_used.append(multicam_name)
+                logger.info("Using multicam clip %r instead of the plain source clip", multicam_name)
+            else:
+                result.warn(
+                    "multicam.json names a multicam clip %r for this source, but no clip with "
+                    "that name is in the media pool -- building from the plain source clip. "
+                    "Create the multicam clip in Resolve first if you want angle switching.",
+                    multicam_name,
+                )
+
+        # Per subject, not per build: each source file carries its own
+        # embedded start timecode, so one subject's 01:00:00:00 dailies and
+        # another's 00:00:00:00 card offload need different origins even
+        # though they share a frame rate and a timeline.
+        transcript_start_frame = tc.timecode_to_frames(bundle.transcript["start_timecode"], fps)
+        if frame_origin == "absolute":
+            origin, origin_source = 0, "frame_origin='absolute' (source frames passed through)"
+        elif frame_origin == "media":
+            origin, origin_source = transcript_start_frame, "transcript start_timecode (forced)"
         else:
-            result.warn(
-                "multicam.json names a multicam clip %r for this source, but no clip with "
-                "that name is in the media pool -- building from the plain source clip. "
-                "Create the multicam clip in Resolve first if you want angle switching.",
-                multicam_name,
-            )
+            origin, origin_source = media_item_frame_origin(media_item, transcript_start_frame, fps)
+        logger.info(
+            "Source in/out points for %s offset by %d frame(s) from %s",
+            key or "this build", origin, origin_source,
+        )
+        bindings[key] = _MediaBinding(
+            media_item=media_item,
+            origin=origin,
+            origin_source=origin_source,
+            media_end=_media_end(media_item),
+            subject=key,
+        )
 
-    transcript_start_frame = tc.timecode_to_frames(transcript["start_timecode"], fps)
-    if frame_origin == "absolute":
-        origin, origin_source = 0, "frame_origin='absolute' (source frames passed through)"
-    elif frame_origin == "media":
-        origin, origin_source = transcript_start_frame, "transcript start_timecode (forced)"
-    else:
-        origin, origin_source = media_item_frame_origin(media_item, transcript_start_frame, fps)
-    logger.info(
-        "Source in/out points offset by %d frame(s) from %s", origin, origin_source,
-    )
-
-    clip_infos = _build_clip_infos(media_item, plan, origin, origin_source, fps, result)
+    clip_infos = _build_clip_infos(plan, bindings, result)
 
     # ---- From here on, Resolve state changes.
     timeline = _call(media_pool, "CreateEmptyTimeline", result.timeline_name)
@@ -1033,12 +1273,16 @@ def build_timeline(
     appended = _call(media_pool, "AppendToTimeline", clip_infos)
     appended_list = _as_list(appended)
     if not appended_list:
+        offsets = "; ".join(
+            f"{b.subject or 'source'} offset by {b.origin} using {b.origin_source}"
+            for b in bindings.values()
+        )
         raise BuilderError(
             f"MediaPool.AppendToTimeline() appended nothing to '{result.timeline_name}'. "
             "The empty timeline was created and is still there -- delete it. This usually "
             "means the requested in/out points fall outside the source clip: the plan asks "
             f"for source frames {plan[0].source_in_frame}-{plan[-1].source_out_frame} "
-            f"(offset by {origin} using {origin_source})."
+            f"({offsets})."
         )
     if len(appended_list) != len(plan):
         result.warn(
@@ -1050,9 +1294,11 @@ def build_timeline(
     result.clips_appended = len(items) if items else len(appended_list)
 
     if write_markers:
-        edit_markers = plan_edit_markers(
-            plan, transcript, analysis, mode=mode, trims=trims, rationale=rationale,
-        )
+        # `bundles` is already the normalized mapping, so each clip's marker
+        # is annotated from the analysis of the subject it was actually cut
+        # from -- including on a single-subject build, where that is the one
+        # analysis passed in.
+        edit_markers = plan_edit_markers(plan, sources=bundles, mode=mode, rationale=rationale)
         marker_stats = write_edit_markers(
             timeline, edit_markers, origin_frame=_marker_origin(timeline, items, result),
         )
@@ -1070,49 +1316,72 @@ def build_timeline(
     return result
 
 
-def _build_clip_infos(
-    media_item,
-    plan: list[AssemblyClip],
-    origin: int,
-    origin_source: str,
-    fps,
-    result: BuildResult,
-) -> list:
-    """The clipInfo dicts for AppendToTimeline, with in/out points converted
-    out of absolute source-timecode space, validated against the media's own
-    bounds where Resolve exposes them."""
-    media_end = None
+def _media_end(media_item) -> Optional[int]:
+    """The last frame the media pool reports for this clip, or None when
+    this Resolve version/clip kind doesn't expose it."""
     for prop in ("End", "Frames"):
         raw = _clip_property(media_item, prop)
         if raw is None:
             continue
         try:
-            media_end = int(raw)
+            return int(raw)
         except (TypeError, ValueError):
             continue
-        break
+    return None
 
+
+@dataclass
+class _MediaBinding:
+    """Everything needed to place ONE subject's clips: which media pool item
+    they come from, how many frames to take off their absolute source frame
+    numbers, and how long that media actually is.
+
+    A single-subject build has exactly one of these (keyed None); a
+    cross-subject build has one per subject, which is what lets a single
+    AppendToTimeline call carry clips from different source files -- the
+    Resolve API takes a heterogeneous clipInfo list, so the per-clip media
+    item is all that ever needed to vary.
+    """
+
+    media_item: object
+    origin: int
+    origin_source: str
+    media_end: Optional[int] = None
+    subject: Optional[str] = None
+
+
+def _build_clip_infos(
+    plan: list[AssemblyClip],
+    bindings: dict,
+    result: BuildResult,
+) -> list:
+    """The clipInfo dicts for AppendToTimeline, each carrying ITS OWN
+    subject's media pool item, with in/out points converted out of that
+    subject's absolute source-timecode space and validated against that
+    media's own bounds where Resolve exposes them."""
     clip_infos = []
     for clip in plan:
-        start = clip.source_in_frame - origin
-        end = clip.source_out_frame - origin
+        binding = bindings[clip.subject]
+        start = clip.source_in_frame - binding.origin
+        end = clip.source_out_frame - binding.origin
         if start < 0:
             raise BuilderError(
                 f"Segment {clip.segment_id} resolves to source frame {start} "
-                f"(source_in_frame {clip.source_in_frame} minus an origin of {origin} "
-                f"from {origin_source}), which is before the start of the media. The "
-                "media's timecode and the transcript's start_timecode disagree -- "
-                "re-ingest the file, or pass frame_origin='absolute' if this Resolve "
-                "version expects absolute timecode frames."
+                f"(source_in_frame {clip.source_in_frame} minus an origin of "
+                f"{binding.origin} from {binding.origin_source}), which is before the "
+                "start of the media. The media's timecode and the transcript's "
+                "start_timecode disagree -- re-ingest the file, or pass "
+                "frame_origin='absolute' if this Resolve version expects absolute "
+                "timecode frames."
             )
-        if media_end is not None and end > media_end + 1:
+        if binding.media_end is not None and end > binding.media_end + 1:
             result.warn(
                 "Segment %s asks for source frames %d-%d but the clip reports only %d "
                 "frames; Resolve will clamp this edit.",
-                clip.segment_id, start, end, media_end,
+                clip.segment_id, start, end, binding.media_end,
             )
         clip_infos.append({
-            "mediaPoolItem": media_item,
+            "mediaPoolItem": binding.media_item,
             "startFrame": start,
             "endFrame": end,
         })

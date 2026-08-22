@@ -162,6 +162,12 @@ class FakeMediaPool:
         self.drop_appends_after = None        # simulate a partial append
         self.duration_delta = 0               # simulate clamping / off-by-one
 
+        # A real import reads each file's OWN embedded start timecode, so a
+        # cross-subject build can import two files with different origins.
+        # Keyed by path; anything not listed gets `import_start_tc`.
+        self.import_start_tc = "01:00:00:00"
+        self.import_start_tc_by_path = {}
+
         # Recorded calls
         self.imported = []
         self.appended_clip_infos = []
@@ -184,7 +190,13 @@ class FakeMediaPool:
     def ImportMedia(self, paths):
         if self.import_returns != "ok":
             return self.import_returns
-        items = [FakeMediaPoolItem(path=p) for p in paths]
+        items = [
+            FakeMediaPoolItem(
+                path=p,
+                start_tc=self.import_start_tc_by_path.get(str(p), self.import_start_tc),
+            )
+            for p in paths
+        ]
         self.imported.extend(paths)
         self.current_folder.clips.extend(items)
         return items
