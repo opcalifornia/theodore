@@ -16,14 +16,16 @@ edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
 (`theodore delivery`/`peaks`), redundancy detection across near-duplicate
 answers (`theodore dupes`), cross-subject plain-language search
-(`theodore find`), the rejects/gap views (`theodore rejects`/`gaps`), and
-duration targeting (`theodore build --target`) (v2.0 Parts 1-4 steps
-7-10). **Known limitation:** `theodore build` can't yet assemble a
-sequence spanning more than one subject (rejected with a clear error, not
-silently mis-built) — the "move haylee.q03 after marcus.q04" cross-subject
-case needs `assembly/plan.py` to work across multiple transcripts, which
-is follow-up work. **Not yet built:** the learning loop, client export,
-and voice control. Module boundaries are deliberately kept clean so all of
+(`theodore find`), the rejects/gap views (`theodore rejects`/`gaps`),
+duration targeting (`theodore build --target`), and the learning loop
+comparing Selects' predictions against real editorial decisions
+(`theodore learn`) (v2.0 Parts 1-4 steps 7-11). **Known limitation:**
+`theodore build` can't yet assemble a sequence spanning more than one
+subject (rejected with a clear error, not silently mis-built) — the "move
+haylee.q03 after marcus.q04" cross-subject case needs `assembly/plan.py`
+to work across multiple transcripts, which is follow-up work. **Not yet
+built:** client export and voice control. Module boundaries are
+deliberately kept clean so all of
 that is additive, not a rewrite.
 
 ## Requirements
@@ -155,6 +157,13 @@ version — a saved version is a recorded decision, and duration targeting
 silently reshaping it would violate the same "never surgically mutate,
 always derive a new version" rule the rest of the edit-list layer holds to.
 
+`theodore learn` compares Selects' strength predictions against the
+current edit list version's actual kept/dropped state, surfacing where
+they diverge — a strong segment that isn't in the current cut, or a weak
+one that is. It's deliberately observational: nothing here rewrites a
+prompt or a score automatically. It's the safer, reversible half of a
+feedback loop, and the half worth building first.
+
 Output, per project:
 
 ```
@@ -222,6 +231,7 @@ theodore dupes --project <name> --subject <id> [--model-tier ...]      # near-du
 theodore find "<query>" --project <name> [--subject <id>] [--limit N]  # plain-language search, one or all subjects
 theodore rejects --project <name> --subject <id> [--threshold N]       # weak segments, sorted weakest first
 theodore gaps --project <name> --subject <id>                          # question-guide entries never answered
+theodore learn --project <name> --subject <id>                         # Selects' predictions vs. the current edit list
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see

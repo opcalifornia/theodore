@@ -14,6 +14,7 @@ import click
 from theodore import commands, config, edits, registry
 from theodore.analyze import coverage as analyze_coverage
 from theodore.analyze import delivery as analyze_delivery
+from theodore.analyze import learning as analyze_learning
 from theodore.analyze import redundancy as analyze_redundancy
 from theodore.analyze import search as analyze_search
 from theodore.analyze.claude_client import CostTracker
@@ -519,6 +520,51 @@ def gaps(project: str, subject: str):
     click.echo(f"'{subject}' is missing {len(missing)}/{len(guide)} guide question(s):")
     for g in missing:
         click.echo(f"  [{g['id']}] {g['canonical']}")
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+def learn(project: str, subject: str):
+    """Compares Selects' strength predictions against what the current
+    edit list version actually keeps, surfacing where the model's read
+    and the real editorial decision diverge. Observational only -- nothing
+    here changes future scoring automatically."""
+    project_dir, reg = _load_registry(project)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    summary = analyze_learning.summarize(project_dir, subject, analysis["segments"], analysis.get("selects", []))
+
+    if summary["versions_checked"] == 0:
+        click.echo(f"No edit list versions yet for '{subject}' -- run `theodore build --mode <mode>` at least once.")
+        return
+
+    segments_by_id = {s["id"]: s for s in analysis["segments"]}
+    click.echo(f"Checked {summary['versions_checked']} version(s) of '{subject}''s edit list.")
+    kept_line = f"  kept (current):    {summary['kept_count']} segment(s)"
+    if summary["avg_strength_kept"] is not None:
+        kept_line += f", avg strength {summary['avg_strength_kept']:.2f}"
+    click.echo(kept_line)
+    dropped_line = f"  dropped (current): {summary['dropped_count']} segment(s)"
+    if summary["avg_strength_dropped"] is not None:
+        dropped_line += f", avg strength {summary['avg_strength_dropped']:.2f}"
+    click.echo(dropped_line)
+
+    if summary["dropped_despite_high_strength"]:
+        click.echo("\nSelects rated these strong, but they're not in the current cut:")
+        for sid in summary["dropped_despite_high_strength"]:
+            seg = segments_by_id.get(sid, {})
+            click.echo(f"  {sid}  {seg.get('question_text') or '(volunteered)'}")
+
+    if summary["kept_despite_low_strength"]:
+        click.echo("\nSelects rated these weak, but they're in the current cut anyway:")
+        for sid in summary["kept_despite_low_strength"]:
+            seg = segments_by_id.get(sid, {})
+            click.echo(f"  {sid}  {seg.get('question_text') or '(volunteered)'}")
+
+    if not summary["dropped_despite_high_strength"] and not summary["kept_despite_low_strength"]:
+        click.echo("\nNo surprises -- your choices track Selects' strength closely.")
 
 
 @cli.command()
