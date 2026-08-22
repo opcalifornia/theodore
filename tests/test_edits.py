@@ -195,3 +195,67 @@ def test_one_sided_override_without_a_trim_entry_is_ignored_not_guessed(tmp_path
     el = edits.EditList("v002", "v001", "", [], [edits.EditEntry("s099", in_override=3.0)])
     merged = edits.apply_overrides_to_trims(el, {})
     assert "s099" not in merged  # left for plan.py's own fallback rather than inventing an out point
+
+
+# --- pending queue: theodore say accumulates here before a real version is minted ---
+
+def test_load_pending_returns_none_when_absent(tmp_path):
+    assert edits.load_pending(tmp_path) is None
+
+
+def test_start_pending_seeds_from_current_version(tmp_path):
+    base = edits.create_initial(tmp_path, ["a", "b"])
+    pending = edits.start_pending(tmp_path, base)
+    assert pending.version == edits.PENDING_VERSION_LABEL
+    assert pending.parent == "v001"
+    assert _ids(pending) == ["a", "b"]
+
+
+def test_start_pending_with_no_base_is_empty(tmp_path):
+    pending = edits.start_pending(tmp_path, None)
+    assert pending.parent is None
+    assert _ids(pending) == []
+
+
+def test_pending_is_not_a_real_version(tmp_path):
+    edits.create_initial(tmp_path, ["a"])
+    edits.start_pending(tmp_path, edits.load(tmp_path, "v001"))
+    # pending.json must not show up as a buildable/loadable version.
+    assert edits.list_versions(tmp_path) == ["v001"]
+    with pytest.raises(edits.EditListError):
+        edits.load(tmp_path, edits.PENDING_VERSION_LABEL)
+
+
+def test_save_and_reload_pending_round_trips(tmp_path):
+    pending = edits.start_pending(tmp_path, None)
+    pending.sequence = [edits.EditEntry("x", in_override=5.0)]
+    pending.command_log = ["insert x"]
+    edits.save_pending(tmp_path, pending)
+
+    reloaded = edits.load_pending(tmp_path)
+    assert _ids(reloaded) == ["x"]
+    assert reloaded.command_log == ["insert x"]
+    assert reloaded.entry_for("x").in_override == 5.0
+
+
+def test_clear_pending_removes_it(tmp_path):
+    edits.start_pending(tmp_path, None)
+    edits.clear_pending(tmp_path)
+    assert edits.load_pending(tmp_path) is None
+    edits.clear_pending(tmp_path)  # idempotent -- clearing twice must not raise
+
+
+def test_load_or_start_pending_reuses_an_existing_queue(tmp_path):
+    first = edits.start_pending(tmp_path, None)
+    first.command_log = ["already queued"]
+    edits.save_pending(tmp_path, first)
+
+    reused = edits.load_or_start_pending(tmp_path, {"current_edit_version": None})
+    assert reused.command_log == ["already queued"]
+
+
+def test_load_or_start_pending_seeds_fresh_from_current(tmp_path):
+    edits.create_initial(tmp_path, ["a", "b"])
+    pending = edits.load_or_start_pending(tmp_path, {"current_edit_version": "v001"})
+    assert _ids(pending) == ["a", "b"]
+    assert pending.command_log == []

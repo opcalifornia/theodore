@@ -53,6 +53,11 @@ DEFAULT_MODEL_TIER = "standard"
 # canonical matching.)
 ID_MATCHING_MODEL = "claude-haiku-4-5-20251001"
 QUESTION_GUIDE_MODEL = "claude-haiku-4-5-20251001"
+# v2.0 Part 2: natural-language command parsing is fixed to Sonnet per spec
+# ("Command parsing runs on Sonnet") -- it's translating intent into a
+# structured op, not doing the high-stakes editorial judgment premium tier
+# buys for selects/themes.
+COMMAND_PARSER_MODEL = "claude-sonnet-5"
 
 # Hard stop: refuse to spend more than this in a single analysis run without
 # --allow-cost-over. A footgun guard, not a precise budget -- see

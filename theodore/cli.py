@@ -10,7 +10,7 @@ from typing import Optional
 
 import click
 
-from theodore import config, edits, registry
+from theodore import commands, config, edits, registry
 from theodore.analyze.claude_client import CostTracker
 from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
@@ -600,6 +600,22 @@ def _connect_or_die() -> resolve_connection.ResolveHandles:
         ) from exc
 
 
+def _reject_foreign_subjects(segment_ids: list, subject: str) -> None:
+    """Raises before anything is persisted if `segment_ids` reaches outside
+    `subject` -- checked BEFORE a pending queue or fresh ordering pass is
+    confirmed into a real edit list version, not after, so a doomed build
+    never leaves a mixed-subject version sitting in the history for a
+    subsequent plain `theodore build` to trip over."""
+    foreign = [sid for sid in segment_ids if not sid.startswith(f"{subject}.")]
+    if foreign:
+        raise click.ClickException(
+            f"This would reference segment(s) belonging to another subject: "
+            f"{', '.join(foreign[:5])}. Cross-subject builds aren't supported by "
+            "`theodore build` yet -- for now, an edit list built with `theodore build` must "
+            "stay within one subject's own segments."
+        )
+
+
 @cli.command()
 @click.option("--project", required=True)
 @click.option("--subject", required=True, help="Whose segments this build covers. Cross-subject edit lists aren't supported yet.")
@@ -647,6 +663,7 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
         )
         segment_ids = [sid for sid in order if sid not in excluded]
         version_label = mode
+        _reject_foreign_subjects(segment_ids, subject)
 
         if not dry_run:
             if apply_trim:
@@ -661,27 +678,41 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
             registry.save_project(project_dir, reg)
             version_label = edit_list.version
     else:
-        # Rebuild the CURRENT persisted edit list exactly as it stands --
-        # this is what `theodore say` leads to after commands are confirmed.
-        edit_list = edits.load_current(project_dir, reg)
-        if edit_list is None:
-            raise click.ClickException(
-                "No edit list yet for this project -- run `theodore build --mode <mode>` "
-                "once to seed one, or `theodore say` to start one conversationally."
-            )
-        segment_ids = edit_list.segment_ids
-        version_label = edit_list.version
-        base_trims = assembly_trim.load_trims(subj_dir)
-        trims = edits.apply_overrides_to_trims(edit_list, base_trims)
-
-    foreign = [sid for sid in segment_ids if not sid.startswith(f"{subject}.")]
-    if foreign:
-        raise click.ClickException(
-            f"This edit list references segment(s) belonging to another subject: "
-            f"{', '.join(foreign[:5])}. Cross-subject builds aren't supported by "
-            "`theodore build` yet -- for now, an edit list built with `theodore build` must "
-            "stay within one subject's own segments."
-        )
+        # A queued `theodore say` session takes priority: confirm it (fork a
+        # new version, clear the queue) and build THAT. Under --dry-run,
+        # preview what confirming would produce without actually confirming
+        # -- same "touches nothing" rule as everywhere else in this command.
+        # With nothing queued, just rebuild the CURRENT persisted version
+        # exactly as it stands (e.g. after Resolve was closed and reopened).
+        pending = edits.load_pending(project_dir)
+        if pending is not None:
+            segment_ids = pending.segment_ids
+            version_label = "(pending)"
+            _reject_foreign_subjects(segment_ids, subject)
+            base_trims = assembly_trim.load_trims(subj_dir)
+            trims = edits.apply_overrides_to_trims(pending, base_trims)
+            if not dry_run:
+                current = edits.load_current(project_dir, reg)
+                if current is None:
+                    edit_list = edits.create_initial(project_dir, pending.segment_ids, command_log=list(pending.command_log))
+                else:
+                    edit_list = edits.derive(project_dir, current, list(pending.sequence), list(pending.command_log))
+                edits.set_current_version(reg, edit_list.version)
+                registry.save_project(project_dir, reg)
+                edits.clear_pending(project_dir)
+                version_label = edit_list.version
+        else:
+            edit_list = edits.load_current(project_dir, reg)
+            if edit_list is None:
+                raise click.ClickException(
+                    "No edit list yet for this project -- run `theodore build --mode <mode>` "
+                    "once to seed one, or `theodore say` to start one conversationally."
+                )
+            segment_ids = edit_list.segment_ids
+            version_label = edit_list.version
+            _reject_foreign_subjects(segment_ids, subject)
+            base_trims = assembly_trim.load_trims(subj_dir)
+            trims = edits.apply_overrides_to_trims(edit_list, base_trims)
 
     plan = assembly_plan.build_plan(transcript, analysis, trims, segment_ids, handle_frames=handles)
 
@@ -783,6 +814,140 @@ def diff_versions(version_a: str, version_b: str, project: str):
     except edits.EditListError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(edits.format_diff(edits.diff(a, b)))
+
+
+def _subject_of_segment(segment_id: str) -> str:
+    return segment_id.split(".", 1)[0]
+
+
+def _build_command_context(project_dir: Path, reg: dict):
+    """Everything theodore.commands.say() needs that isn't the instruction
+    text itself: every registered subject's segments (annotated with
+    strength/themes), and three lazy, cross-subject lookups -- a segment id
+    like "haylee.q03" is resolved to its subject by prefix, and each
+    subject's transcript/analysis/trims are read at most once per call
+    regardless of how many segments from that subject a command touches.
+    """
+    subjects_segments: dict = {}
+    for subject_id in registry.list_subjects(reg):
+        analysis_path = registry.subject_dir(project_dir, subject_id) / "analysis.json"
+        if analysis_path.exists():
+            analysis = json.loads(analysis_path.read_text())
+            subjects_segments[subject_id] = commands.index_segments_with_metadata(analysis)
+
+    cache: dict = {}
+
+    def subject_data(subject_id: str):
+        if subject_id not in cache:
+            subj_dir = registry.subject_dir(project_dir, subject_id)
+            transcript_path = subj_dir / "transcript.json"
+            analysis_path = subj_dir / "analysis.json"
+            cache[subject_id] = (
+                json.loads(transcript_path.read_text()) if transcript_path.exists() else None,
+                json.loads(analysis_path.read_text()) if analysis_path.exists() else None,
+                assembly_trim.load_trims(subj_dir),
+            )
+        return cache[subject_id]
+
+    def strength_of(segment_id: str) -> Optional[float]:
+        _, analysis, _ = subject_data(_subject_of_segment(segment_id))
+        if analysis is None:
+            return None
+        sel = next((s for s in analysis.get("selects", []) if s["segment_id"] == segment_id), None)
+        return sel.get("strength") if sel else None
+
+    def words_of(segment_id: str) -> list:
+        transcript, analysis, trims = subject_data(_subject_of_segment(segment_id))
+        if transcript is None or analysis is None:
+            return []
+        seg = next((s for s in analysis["segments"] if s["id"] == segment_id), None)
+        if seg is None:
+            return []
+        sel = next((s for s in analysis.get("selects", []) if s["segment_id"] == segment_id), None)
+        return assembly_trim.kept_words(seg, sel, transcript, trims.get(segment_id))
+
+    def bounds_of(segment_id: str) -> tuple:
+        transcript, analysis, trims = subject_data(_subject_of_segment(segment_id))
+        trim = trims.get(segment_id)
+        if trim:
+            return trim["trimmed_start"], trim["trimmed_end"]
+        seg = next((s for s in (analysis or {}).get("segments", []) if s["id"] == segment_id), None)
+        sel = next((s for s in (analysis or {}).get("selects", []) if s["segment_id"] == segment_id), None) if analysis else None
+        if seg is None or transcript is None:
+            return 0.0, 0.0
+        utterances_by_id = {u["id"]: u for u in transcript["utterances"]}
+        start_u = utterances_by_id.get((sel or {}).get("clean_start_utterance") or seg["answer_start_utterance"])
+        end_u = utterances_by_id.get((sel or {}).get("clean_end_utterance") or seg["answer_end_utterance"])
+        return (start_u["start"] if start_u else 0.0, end_u["end"] if end_u else 0.0)
+
+    return subjects_segments, strength_of, words_of, bounds_of
+
+
+def _print_command_result(result) -> None:
+    if result.status == "answered":
+        click.echo(result.message)
+    elif result.status == "ambiguous":
+        click.echo(f"Ambiguous -- {result.message}")
+        for candidate in result.candidates:
+            click.echo(f"  - {candidate}")
+    elif result.status == "error":
+        click.echo(f"Could not apply that: {result.message}")
+    else:
+        click.echo(f'Queued: "{result.raw_text}"\n')
+        click.echo("Resulting order:")
+        for i, sid in enumerate(result.sequence, start=1):
+            click.echo(f"  {i}. {sid}")
+        click.echo("\nRun `theodore pending` to review, or `theodore build --subject <id>` to confirm and rebuild.")
+
+
+@cli.command()
+@click.argument("text")
+@click.option("--project", required=True)
+def say(text: str, project: str):
+    """Turn one plain-language instruction into a queued edit-list change.
+
+    Nothing is built or committed to a real edit list version until
+    `theodore build` (without --mode) confirms the queue -- six commands
+    are one rebuild, not six.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+
+    subjects_segments, strength_of, words_of, bounds_of = _build_command_context(project_dir, reg)
+    if not subjects_segments:
+        raise click.ClickException(
+            "No subject in this project has analysis yet -- run `theodore analyze` for at "
+            "least one subject before `theodore say` has anything to work with."
+        )
+
+    cost_tracker = CostTracker()
+    result = commands.say(
+        project_dir, reg, text, subjects_segments,
+        strength_of=strength_of, words_of=words_of, bounds_of=bounds_of,
+        cost_tracker=cost_tracker,
+    )
+    _print_command_result(result)
+    if cost_tracker.calls:
+        click.echo(f"\n(cost: ${cost_tracker.total_cost_usd:.4f})")
+
+
+@cli.command()
+@click.option("--project", required=True)
+def pending(project: str):
+    """Show the queued commands and the order they would produce."""
+    project_dir, reg = _load_registry(project)
+    queue = edits.load_pending(project_dir)
+    if queue is None:
+        click.echo('Nothing queued. Use `theodore say "..."` to start.')
+        return
+    click.echo(f"Based on: {queue.parent or '(no edit list yet)'}\n")
+    click.echo("Commands:")
+    for c in queue.command_log:
+        click.echo(f"  - {c}")
+    click.echo("\nResulting order:")
+    for i, sid in enumerate(queue.segment_ids, start=1):
+        click.echo(f"  {i}. {sid}")
+    click.echo("\nRun `theodore build --subject <id>` to confirm and rebuild, or keep `say`ing to add more.")
 
 
 @cli.command()

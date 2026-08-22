@@ -269,6 +269,80 @@ def load_current(project_dir: Path, project: dict) -> Optional[EditList]:
     return load(project_dir, version)
 
 
+# --------------------------------------------------------------------------
+# The pending queue (v2.0 Part 2): `theodore say` accumulates commands here
+# without minting a real version -- "batch by default... rebuild once on
+# confirmation." Confirmation (deriving a real version from this and
+# clearing it) happens in the CLI's `build` command. A pending queue is
+# just an EditList with version="(pending)"; it never appears in
+# list_versions() (the glob only matches "v*.json") and is never load()able
+# by version name.
+# --------------------------------------------------------------------------
+
+PENDING_VERSION_LABEL = "(pending)"
+
+
+def pending_path(project_dir: Path) -> Path:
+    return edits_dir(project_dir) / "pending.json"
+
+
+def load_pending(project_dir: Path) -> Optional[EditList]:
+    path = pending_path(project_dir)
+    if not path.exists():
+        return None
+    return EditList.from_dict(json.loads(path.read_text()))
+
+
+def save_pending(project_dir: Path, edit_list: EditList) -> Path:
+    path = pending_path(project_dir)
+    path.write_text(json.dumps(edit_list.to_dict(), indent=2))
+    return path
+
+
+def clear_pending(project_dir: Path) -> None:
+    pending_path(project_dir).unlink(missing_ok=True)
+
+
+def start_pending(project_dir: Path, base: Optional[EditList], *, save: bool = True) -> EditList:
+    """A working copy of `base`'s sequence (or an empty one, if there is no
+    current version yet) to accumulate commands against. `save=False` builds
+    the object without writing it -- for a caller that only wants to
+    persist once it has an actual change to record, rather than writing an
+    identical-to-current pending.json for e.g. a read-only query."""
+    pending = EditList(
+        version=PENDING_VERSION_LABEL,
+        parent=base.version if base else None,
+        created=_now_iso(),
+        command_log=[],
+        sequence=list(base.sequence) if base else [],
+    )
+    if save:
+        save_pending(project_dir, pending)
+    return pending
+
+
+def load_or_start_pending(project_dir: Path, project: dict) -> EditList:
+    """The pending queue if one is already accumulating commands, otherwise
+    a fresh one seeded from the current version (or empty)."""
+    pending = load_pending(project_dir)
+    if pending is not None:
+        return pending
+    return start_pending(project_dir, load_current(project_dir, project))
+
+
+def working_sequence(project_dir: Path, project: dict) -> list:
+    """The segment ids a new command should be evaluated against: the
+    pending queue's if one exists, else the current version's, else empty.
+    Read-only -- unlike load_or_start_pending, this never creates
+    pending.json, so a caller can build context/preview without a
+    read causing a write."""
+    pending = load_pending(project_dir)
+    if pending is not None:
+        return pending.segment_ids
+    current = load_current(project_dir, project)
+    return current.segment_ids if current else []
+
+
 def apply_overrides_to_trims(edit_list: EditList, trims: dict) -> dict:
     """Fold an edit list's per-segment in/out overrides into a trims dict so
     assembly/plan.py picks them up without needing to know edit lists exist.
