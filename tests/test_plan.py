@@ -101,3 +101,49 @@ def test_clip_for_segment_finds_and_returns_none_for_missing():
     result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
     assert plan.clip_for_segment(result, "s002") is result[1]
     assert plan.clip_for_segment(result, "s999") is None
+
+
+def test_target_duration_order_no_op_when_already_under_target():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    # both clips are 144 frames (6s @ 24fps) each, 288 total.
+    order, dropped = plan.target_duration_order(["s001", "s002"], result, {}, target_frames=1000)
+    assert order == ["s001", "s002"]
+    assert dropped == []
+
+
+def test_target_duration_order_drops_weakest_first():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    selects_by_id = {"s001": {"strength": 0.9}, "s002": {"strength": 0.2}}
+    order, dropped = plan.target_duration_order(["s001", "s002"], result, selects_by_id, target_frames=200)
+    assert dropped == ["s002"]
+    assert order == ["s001"]
+
+
+def test_target_duration_order_treats_unscored_as_zero_strength():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    selects_by_id = {"s001": {"strength": 0.9}}  # s002 unscored -- should drop before s001
+    order, dropped = plan.target_duration_order(["s001", "s002"], result, selects_by_id, target_frames=200)
+    assert dropped == ["s002"]
+    assert order == ["s001"]
+
+
+def test_target_duration_order_drops_everything_if_target_unreachable():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    order, dropped = plan.target_duration_order(["s001", "s002"], result, {}, target_frames=1)
+    assert order == []
+    assert dropped == ["s001", "s002"]
+
+
+def test_target_duration_order_preserves_relative_order_of_kept_segments():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    # both equally weak (unscored); target still fits both -- nothing dropped.
+    order, dropped = plan.target_duration_order(["s002", "s001"], result, {}, target_frames=288)
+    assert order == ["s002", "s001"]
+    assert dropped == []
+
+
+def test_target_duration_order_zero_or_negative_target_is_a_no_op():
+    result = plan.build_plan(_TRANSCRIPT, _ANALYSIS, _TRIMS, ["s001", "s002"], handle_frames=0)
+    order, dropped = plan.target_duration_order(["s001", "s002"], result, {}, target_frames=0)
+    assert order == ["s001", "s002"]
+    assert dropped == []

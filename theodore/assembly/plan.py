@@ -113,3 +113,42 @@ def total_runtime_frames(plan: list[AssemblyClip]) -> int:
 
 def clip_for_segment(plan: list[AssemblyClip], segment_id: str) -> Optional[AssemblyClip]:
     return next((c for c in plan if c.segment_id == segment_id), None)
+
+
+def target_duration_order(
+    order: list[str],
+    plan: list[AssemblyClip],
+    selects_by_id: dict,
+    target_frames: int,
+) -> tuple[list[str], list[str]]:
+    """v2.0 Part 4 step 10 -- duration targeting. Drops the weakest-scoring
+    segments (by Selects strength; an unscored segment counts as 0.0, since
+    there's no evidence it's worth keeping over a scored one) from `order`
+    until the plan's total runtime fits within `target_frames`, preserving
+    the relative order of everything kept. Returns (kept_order,
+    dropped_ids) -- dropped_ids sorted for a stable, readable report, not
+    in the order they were dropped."""
+    total = total_runtime_frames(plan)
+    if target_frames <= 0 or total <= target_frames:
+        return order, []
+
+    duration_by_id = {c.segment_id: c.duration_frames for c in plan}
+
+    def strength(sid: str) -> float:
+        return selects_by_id.get(sid, {}).get("strength") or 0.0
+
+    weakest_first = sorted(
+        (sid for sid in order if sid in duration_by_id),
+        key=lambda sid: (strength(sid), sid),
+    )
+
+    dropped = set()
+    remaining = total
+    for sid in weakest_first:
+        if remaining <= target_frames:
+            break
+        dropped.add(sid)
+        remaining -= duration_by_id[sid]
+
+    kept_order = [sid for sid in order if sid not in dropped]
+    return kept_order, sorted(dropped)

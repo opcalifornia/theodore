@@ -649,6 +649,27 @@ def _parse_exclude(exclude: Optional[str], analysis: dict) -> set:
     return requested
 
 
+def _parse_duration_seconds(value: str) -> float:
+    """Accepts plain seconds ("90") or clock-time ("1:30", "1:02:30") --
+    intent-level duration, not a frame-accurate SMPTE timecode."""
+    parts = value.split(":")
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError as exc:
+        raise click.ClickException(f"--target must be seconds or MM:SS / HH:MM:SS, got {value!r}") from exc
+    if len(numbers) == 1:
+        seconds = numbers[0]
+    elif len(numbers) == 2:
+        seconds = numbers[0] * 60 + numbers[1]
+    elif len(numbers) == 3:
+        seconds = numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    else:
+        raise click.ClickException(f"--target must be seconds or MM:SS / HH:MM:SS, got {value!r}")
+    if seconds <= 0:
+        raise click.ClickException(f"--target must be a positive duration, got {value!r}")
+    return seconds
+
+
 def _prepare_assembly(
     subj_dir: Path,
     subject: str,
@@ -862,10 +883,13 @@ def _reject_foreign_subjects(segment_ids: list, subject: str) -> None:
 @click.option("--aggressive-trim", is_flag=True)
 @click.option("--trim/--no-trim", "apply_trim", default=True)
 @click.option("--exclude", default=None, help="Comma-separated segment ids to leave out (only meaningful with --mode).")
+@click.option("--target", default=None,
+              help="Target runtime (seconds or MM:SS / HH:MM:SS). Drops the weakest-scoring segments "
+                   "to fit. Only meaningful with --mode -- a fresh ordering pass, never a saved version.")
 @click.option("--model-tier", type=MODEL_TIER_CHOICE, default=config.DEFAULT_MODEL_TIER)
 @click.option("--dry-run", is_flag=True)
 def build(project, subject, mode, handles, silence_threshold, aggressive_trim, apply_trim,
-          exclude, model_tier, dry_run):
+          exclude, target, model_tier, dry_run):
     """Build (or rebuild) a real Resolve timeline from the project's edit list.
 
     Never touches an existing timeline -- every build creates a new one. With
@@ -875,6 +899,10 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
     as it stands -- this is what `theodore say` leads to after queued
     commands are confirmed.
     """
+    if target is not None and mode is None:
+        raise click.ClickException("--target only makes sense with --mode -- it drops segments from a fresh "
+                                    "ordering pass, not from a saved edit list version.")
+
     project_dir, reg = _load_registry(project)
     _setup_logging(project_dir)
     subj_dir = _require_subject_dir(project_dir, reg, subject)
@@ -900,6 +928,18 @@ def build(project, subject, mode, handles, silence_threshold, aggressive_trim, a
         segment_ids = [sid for sid in order if sid not in excluded]
         version_label = mode
         _reject_foreign_subjects(segment_ids, subject)
+
+        if target is not None:
+            target_seconds = _parse_duration_seconds(target)
+            target_frames = timecode.seconds_to_frames(target_seconds, transcript["fps"])
+            prelim_plan = assembly_plan.build_plan(transcript, analysis, trims, segment_ids, handle_frames=handles)
+            selects_by_id = {s["segment_id"]: s for s in analysis.get("selects", [])}
+            segment_ids, dropped_for_target = assembly_plan.target_duration_order(
+                segment_ids, prelim_plan, selects_by_id, target_frames,
+            )
+            if dropped_for_target:
+                click.echo(f"   --target dropped {len(dropped_for_target)} weakest segment(s) to fit "
+                           f"{target}: {', '.join(dropped_for_target)}")
 
         if not dry_run:
             if apply_trim:

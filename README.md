@@ -16,15 +16,15 @@ edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
 (`theodore delivery`/`peaks`), redundancy detection across near-duplicate
 answers (`theodore dupes`), cross-subject plain-language search
-(`theodore find`), and the rejects/gap views (`theodore rejects`/`gaps`)
-(v2.0 Parts 1-4 steps 7-9). **Known limitation:** `theodore build` can't
-yet assemble a sequence spanning more than one subject (rejected with a
-clear error, not silently mis-built) — the "move haylee.q03 after
-marcus.q04" cross-subject case needs `assembly/plan.py` to work across
-multiple transcripts, which is follow-up work. **Not yet built:**
-duration targeting, the learning loop, client export, and voice control.
-Module boundaries are deliberately kept clean so all of that is additive,
-not a rewrite.
+(`theodore find`), the rejects/gap views (`theodore rejects`/`gaps`), and
+duration targeting (`theodore build --target`) (v2.0 Parts 1-4 steps
+7-10). **Known limitation:** `theodore build` can't yet assemble a
+sequence spanning more than one subject (rejected with a clear error, not
+silently mis-built) — the "move haylee.q03 after marcus.q04" cross-subject
+case needs `assembly/plan.py` to work across multiple transcripts, which
+is follow-up work. **Not yet built:** the learning loop, client export,
+and voice control. Module boundaries are deliberately kept clean so all of
+that is additive, not a rewrite.
 
 ## Requirements
 
@@ -145,6 +145,16 @@ which guide questions that subject never actually answered — the
 complement to Selects telling you what's good: what's weak, and what's
 missing.
 
+`theodore build --mode <mode> --target <MM:SS|seconds>` fits a fresh
+assembly to a runtime budget by dropping the weakest-scoring segments
+(Selects strength, unscored counting as 0.0) until it's under target,
+keeping the relative order of everything that's kept, and reporting
+exactly what it dropped and why. `--target` only applies to a fresh
+`--mode` ordering pass, never to rebuilding a saved or pending edit list
+version — a saved version is a recorded decision, and duration targeting
+silently reshaping it would violate the same "never surgically mutate,
+always derive a new version" rule the rest of the edit-list layer holds to.
+
 Output, per project:
 
 ```
@@ -196,7 +206,7 @@ theodore captions --project <name> --subject <id> [--srt] [--vtt] [--import-to-r
 theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorted by strength
 
 # v2.0 -- versioned edit lists + the conversational editor
-theodore build --project <name> --subject <id> [--mode ...] [--dry-run]   # seed/rebuild a real timeline
+theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
 theodore untrim --project <name> --subject <id>        # rebuild the current edit list at full length
 theodore versions / revert <version> / diff <v1> <v2> --project <name>
 theodore say "move haylee.q03 after marcus.q04" --project <name>
