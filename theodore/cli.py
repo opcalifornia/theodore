@@ -13,6 +13,7 @@ import click
 
 from theodore import commands, config, edits, registry
 from theodore.analyze import delivery as analyze_delivery
+from theodore.analyze import redundancy as analyze_redundancy
 from theodore.analyze.claude_client import CostTracker
 from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
@@ -356,6 +357,49 @@ def peaks(project: str, subject: str, limit: int):
         click.echo(f"\n[{row['divergence']:.2f}] {row['segment_id']} -- {row['label']}")
         for line in row["descriptor"].splitlines()[1:]:
             click.echo(f"  {line}")
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+@click.option("--model-tier", type=MODEL_TIER_CHOICE, default=config.DEFAULT_MODEL_TIER)
+def dupes(project: str, subject: str, model_tier: str):
+    """Find segments that tell essentially the same story or give
+    essentially the same answer more than once, so an editor only has to
+    pick one take instead of re-watching every version of it.
+
+    Needs `theodore analyze` to have run at least once already -- it pools
+    candidate segments using the theme tags that pass produced, so this
+    stays cheap instead of comparing every segment against every other.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    analysis = _load_analysis(subj_dir, subject)
+    cost_tracker = CostTracker()
+
+    with Stopwatch("Finding redundant segments"):
+        result = analyze_redundancy.run_redundancy(
+            analysis["segments"], analysis.get("theme_assignments", {}), analysis.get("selects", []),
+            model_tier=model_tier, cost_tracker=cost_tracker,
+        )
+    out = analyze_redundancy.save_redundancy(result, subj_dir)
+
+    if not result["groups"]:
+        click.echo("No redundant segments found.")
+    else:
+        segments_by_id = {s["id"]: s for s in analysis["segments"]}
+        for group in result["groups"]:
+            click.echo(f"\n[{group['id']}] {len(group['segment_ids'])} segments cover the same ground:")
+            for sid in group["segment_ids"]:
+                mark = "-> keep" if sid == group["recommended_id"] else "  drop?"
+                label = segments_by_id.get(sid, {}).get("question_text") or "(volunteered)"
+                click.echo(f"  {mark}  {sid}  {label}")
+            click.echo(f"  reason: {group['reason']}")
+
+    click.echo(f"\nWrote {out}")
+    click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")
 
 
 @cli.command()

@@ -30,18 +30,21 @@ MODEL_TIERS = {
         "selects": "claude-haiku-4-5-20251001",
         "themes": "claude-haiku-4-5-20251001",
         "narrative": "claude-haiku-4-5-20251001",
+        "redundancy": "claude-haiku-4-5-20251001",
     },
     "standard": {
         "segmenter": "claude-haiku-4-5-20251001",
         "selects": "claude-sonnet-5",
         "themes": "claude-sonnet-5",
         "narrative": "claude-sonnet-5",
+        "redundancy": "claude-sonnet-5",
     },
     "premium": {
         "segmenter": "claude-sonnet-5",
         "selects": "claude-opus-5",
         "themes": "claude-opus-5",
         "narrative": "claude-opus-5",
+        "redundancy": "claude-opus-5",
     },
 }
 

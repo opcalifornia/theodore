@@ -12,17 +12,18 @@ transcribe → analyze → markers → notes (v1); trim proposals, `review.html`
 assembly ordering strategies, and real Resolve timeline construction
 (v1.5 — only `resolve/multicam.py` is still unbuilt); the multi-subject
 registry with immutable ids and canonical question-guide matching, versioned
-edit lists (`theodore build`/`versions`/`revert`/`diff`), the natural-language
-command layer (`theodore say`/`pending`/`chat`), and delivery/prosody analysis
-feeding a second axis into the Selects pass (`theodore delivery`/`peaks`)
-(v2.0 Parts 1-3). **Known limitation:** `theodore build` can't yet assemble a
-sequence spanning more than one subject (rejected with a clear error, not
-silently mis-built) — the "move haylee.q03 after marcus.q04" cross-subject
-case needs `assembly/plan.py` to work across multiple transcripts, which is
-follow-up work. **Not yet built:** redundancy detection, semantic search,
-coverage/gap analysis, duration targeting, the learning loop, client export,
-and voice control. Module boundaries are deliberately kept clean so all of
-that is additive, not a rewrite.
+edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
+analysis feeding a second axis into the Selects pass
+(`theodore delivery`/`peaks`), and redundancy detection across
+near-duplicate answers (`theodore dupes`) (v2.0 Parts 1-4 step 7).
+**Known limitation:** `theodore build` can't yet assemble a sequence
+spanning more than one subject (rejected with a clear error, not silently
+mis-built) — the "move haylee.q03 after marcus.q04" cross-subject case
+needs `assembly/plan.py` to work across multiple transcripts, which is
+follow-up work. **Not yet built:** semantic search, coverage/gap analysis,
+duration targeting, the learning loop, client export, and voice control.
+Module boundaries are deliberately kept clean so all of that is additive,
+not a rewrite.
 
 ## Requirements
 
@@ -117,6 +118,15 @@ subject, letting you eventually pull every subject's answer to the same
 prompt and rank by strength. This is layered on top of each segment's
 immutable sequential id, never a replacement for it.
 
+`theodore dupes` finds segments that tell essentially the same story or
+give essentially the same answer more than once — the subject circling
+back unprompted, or being asked the same thing two different ways — so an
+editor picks once instead of re-watching every take. It pools candidates
+by shared theme tag (from `analyze`'s themes pass) rather than comparing
+every segment against every other, so it stays cheap; the recommended take
+within a group is just whichever member Selects already scored highest, no
+second judgment call needed.
+
 Output, per project:
 
 ```
@@ -133,6 +143,8 @@ data/<project>/
     ├── selects.json             # Pass 3B: usability scoring + clean in/out
     ├── themes.json              # Pass 3C: controlled theme vocabulary + tags
     ├── analysis.json            # segments + selects + themes, combined
+    ├── delivery.json            # v2.0 Part 3: pitch/energy/pause/onset-delay profiles (optional)
+    ├── redundancy.json          # v2.0 Part 4: near-duplicate answer groups (optional)
     ├── markers.edl               # EDL fallback, written only if Resolve wasn't reachable
     ├── interview_notes.md        # human-readable interview log
     └── selects.csv               # machine-readable, sorted by strength
@@ -176,6 +188,9 @@ theodore chat --project <name>                          # interactive REPL over 
 # v2.0 Part 3 -- delivery (prosody) analysis
 theodore delivery --project <name> --subject <id>       # pitch/energy/pause/onset-delay profiles
 theodore peaks --project <name> --subject <id>          # segments ranked by divergence from baseline
+
+# v2.0 Part 4 -- redundancy detection
+theodore dupes --project <name> --subject <id> [--model-tier ...]   # near-duplicate answers, pick-one groups
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see
