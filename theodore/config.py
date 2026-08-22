@@ -56,10 +56,12 @@ MAX_ESTIMATED_COST_USD = float(os.environ.get("THEODORE_MAX_COST_USD", "20.0"))
 CHUNK_UTTERANCE_OVERLAP = 10
 MAX_UTTERANCES_PER_CHUNK = 220
 
-# Trim defaults for assembly/trim.py (v1.5).
+# Trim defaults for assembly/trim.py (v1.5). Filler/backchannel sets are
+# matched against lowercased, punctuation-stripped words (or word pairs, for
+# the two-word phrases), so entries here are written in their bare form.
 DEFAULT_SILENCE_THRESHOLD_SECONDS = 1.2
 DEFAULT_HANDLE_FRAMES = 12
-LEADING_TRAILING_FILLERS = {"um", "uh", "uh,", "um,", "you know", "like", "so", "well"}
+LEADING_TRAILING_FILLERS = {"um", "uh", "you know", "like", "so", "well"}
 BACKCHANNEL_WORDS = {"mm-hmm", "mhm", "uh-huh", "right", "yeah", "okay", "ok", "mm"}
 
 
