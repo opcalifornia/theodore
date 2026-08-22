@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import anthropic
 import click
 
 from theodore import commands, config, edits, registry
@@ -768,22 +769,27 @@ def untrim(project: str, subject: str, handles: int, dry_run: bool):
     click.echo(assembly_builder.format_result(result))
 
 
+def _format_versions(project_dir: Path, reg: dict) -> str:
+    current = reg.get("current_edit_version")
+    version_names = edits.list_versions(project_dir)
+    if not version_names:
+        return "No edit list versions yet -- run `theodore build --mode <mode>` to seed one."
+    lines = []
+    for name in version_names:
+        el = edits.load(project_dir, name)
+        marker = "  <- current" if name == current else ""
+        lines.append(f"{name}  (parent: {el.parent or '-'}, {len(el.sequence)} clips){marker}")
+        for c in el.command_log:
+            lines.append(f"    - {c}")
+    return "\n".join(lines)
+
+
 @cli.command()
 @click.option("--project", required=True)
 def versions(project: str):
     """List every edit list version, its parent, and its command log."""
     project_dir, reg = _load_registry(project)
-    current = reg.get("current_edit_version")
-    version_names = edits.list_versions(project_dir)
-    if not version_names:
-        click.echo("No edit list versions yet -- run `theodore build --mode <mode>` to seed one.")
-        return
-    for name in version_names:
-        el = edits.load(project_dir, name)
-        marker = "  <- current" if name == current else ""
-        click.echo(f"{name}  (parent: {el.parent or '-'}, {len(el.sequence)} clips){marker}")
-        for c in el.command_log:
-            click.echo(f"    - {c}")
+    click.echo(_format_versions(project_dir, reg))
 
 
 @cli.command()
@@ -931,23 +937,114 @@ def say(text: str, project: str):
         click.echo(f"\n(cost: ${cost_tracker.total_cost_usd:.4f})")
 
 
+def _format_pending(project_dir: Path) -> str:
+    queue = edits.load_pending(project_dir)
+    if queue is None:
+        return 'Nothing queued. Use `say "..."` to start.'
+    lines = [f"Based on: {queue.parent or '(no edit list yet)'}", "", "Commands:"]
+    lines.extend(f"  - {c}" for c in queue.command_log)
+    lines.append("\nResulting order:")
+    lines.extend(f"  {i}. {sid}" for i, sid in enumerate(queue.segment_ids, start=1))
+    lines.append("\nRun `theodore build --subject <id>` to confirm and rebuild, or keep `say`ing to add more.")
+    return "\n".join(lines)
+
+
 @cli.command()
 @click.option("--project", required=True)
 def pending(project: str):
     """Show the queued commands and the order they would produce."""
+    project_dir, _ = _load_registry(project)
+    click.echo(_format_pending(project_dir))
+
+
+_CHAT_HELP = """\
+Type a plain-language instruction to queue it, same as `theodore say`.
+
+Meta-commands:
+  pending                        show the queued commands + resulting order
+  versions                       list edit list versions
+  build <subject> [--mode M]     confirm the queue (or seed one with --mode)
+                                  and build a real Resolve timeline
+  help                           this message
+  exit / quit / Ctrl-D           leave
+"""
+
+
+@cli.command()
+@click.option("--project", required=True)
+def chat(project: str):
+    """Interactive REPL: hold the registry in context and issue instructions
+    one after another without re-invoking the CLI (and re-reading every
+    subject's transcript/analysis off disk) for each one.
+    """
     project_dir, reg = _load_registry(project)
-    queue = edits.load_pending(project_dir)
-    if queue is None:
-        click.echo('Nothing queued. Use `theodore say "..."` to start.')
-        return
-    click.echo(f"Based on: {queue.parent or '(no edit list yet)'}\n")
-    click.echo("Commands:")
-    for c in queue.command_log:
-        click.echo(f"  - {c}")
-    click.echo("\nResulting order:")
-    for i, sid in enumerate(queue.segment_ids, start=1):
-        click.echo(f"  {i}. {sid}")
-    click.echo("\nRun `theodore build --subject <id>` to confirm and rebuild, or keep `say`ing to add more.")
+    _setup_logging(project_dir)
+
+    subjects_segments, strength_of, words_of, bounds_of = _build_command_context(project_dir, reg)
+    if not subjects_segments:
+        raise click.ClickException(
+            "No subject in this project has analysis yet -- run `theodore analyze` for at "
+            "least one subject before `theodore chat` has anything to work with."
+        )
+
+    client = anthropic.Anthropic(api_key=config.require_anthropic_key())
+    cost_tracker = CostTracker()
+
+    click.echo(f"Theodore chat -- project '{project}', {len(subjects_segments)} subject(s) loaded.")
+    click.echo("Type an instruction, or `help` for meta-commands. Ctrl-D to exit.\n")
+
+    while True:
+        try:
+            line = click.prompt("theodore", prompt_suffix="> ")
+        except (EOFError, click.exceptions.Abort):
+            click.echo()
+            break
+
+        line = line.strip()
+        if not line:
+            continue
+        if line in ("exit", "quit"):
+            break
+        if line == "help":
+            click.echo(_CHAT_HELP)
+            continue
+        if line == "pending":
+            click.echo(_format_pending(project_dir))
+            continue
+        if line == "versions":
+            click.echo(_format_versions(project_dir, reg))
+            continue
+
+        if line.startswith("build"):
+            parts = line.split()
+            if len(parts) < 2:
+                click.echo("Usage: build <subject> [--mode chronological|strength|thematic|narrative]")
+                continue
+            build_subject = parts[1]
+            build_mode = parts[parts.index("--mode") + 1] if "--mode" in parts else None
+            ctx = click.Context(build)
+            try:
+                ctx.invoke(
+                    build, project=project, subject=build_subject, mode=build_mode,
+                    handles=config.DEFAULT_HANDLE_FRAMES, silence_threshold=config.DEFAULT_SILENCE_THRESHOLD_SECONDS,
+                    aggressive_trim=False, apply_trim=True, exclude=None,
+                    model_tier=config.DEFAULT_MODEL_TIER, dry_run=False,
+                )
+            except click.ClickException as exc:
+                click.echo(f"Error: {exc.message}")
+            reg = registry.load_project(project_dir, project_name=project)  # build() may have advanced current_edit_version
+            continue
+
+        result = commands.say(
+            project_dir, reg, line, subjects_segments,
+            strength_of=strength_of, words_of=words_of, bounds_of=bounds_of,
+            cost_tracker=cost_tracker, client=client,
+        )
+        _print_command_result(result)
+
+    if cost_tracker.calls:
+        click.echo(f"\nSession cost: ${cost_tracker.total_cost_usd:.4f}")
+    click.echo("Goodbye.")
 
 
 @cli.command()
