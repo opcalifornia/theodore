@@ -47,6 +47,13 @@ MODEL_TIERS = {
 
 DEFAULT_MODEL_TIER = "standard"
 
+# Fixed to Haiku regardless of --model-tier: these are similarity/matching
+# tasks, not editorial judgment, and running them at a higher tier buys
+# nothing. (v2.0 Part 1: registry immutable-id matching and question-guide
+# canonical matching.)
+ID_MATCHING_MODEL = "claude-haiku-4-5-20251001"
+QUESTION_GUIDE_MODEL = "claude-haiku-4-5-20251001"
+
 # Hard stop: refuse to spend more than this in a single analysis run without
 # --allow-cost-over. A footgun guard, not a precise budget -- see
 # estimate_preflight_cost() for how the pre-flight number is derived, and

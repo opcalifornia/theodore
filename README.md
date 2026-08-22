@@ -6,10 +6,16 @@ Claude to identify question/answer structure and story-worthy content, and
 writes that intelligence directly into a DaVinci Resolve Studio timeline as
 markers — plus exports human-readable notes.
 
-This is v1. It's useful standalone (ingest → transcript → analysis →
-markers → notes), and its module boundaries are built to grow into a full
-rough-assembly and multicam-aware editor without a rewrite (see
-[Future phases](#future-phases)).
+This is v1, plus a v1.5 rough-assembly layer and the v2.0 multi-subject
+registry. **Currently built and tested:** ingest → transcribe → analyze →
+markers → notes (v1); trim proposals, the `review.html` approval page, and
+assembly ordering strategies (v1.5 — `assembly/builder.py`, the module that
+actually writes a new timeline, is not yet built); and the project registry
+with immutable per-subject segment ids and canonical question-guide
+matching (v2.0 Part 1). **Not yet built:** multicam sync, captions/quotes
+export, the natural-language command layer and `theodore chat` REPL,
+delivery (prosody) analysis, and semantic search. Module boundaries are
+deliberately kept clean so all of that is additive, not a rewrite.
 
 ## Requirements
 
@@ -51,62 +57,97 @@ those **without quotes**, or Resolve's scripting bridge fails to load.
 
 ## Worked example
 
+Every project is a **registry**: one `project.json`, and one or more
+**subjects** (people interviewed), each addressed by an immutable id you
+choose (e.g. `haylee`, `marcus`). Every command below is scoped to one
+subject at a time — that's what makes multi-subject documentary projects
+(interview five people, cut across all of them) work without the data from
+one subject colliding with another's.
+
 ```bash
-# One command, full pipeline:
-theodore run /path/to/interview.mov --project acme_doc
+# One command, full pipeline, for one subject:
+theodore run /path/to/haylee_interview.mov --project veterans_doc --subject haylee --display-name "Haylee Reyes"
 
 # Or stage by stage, so you can check each result before moving on:
-theodore ingest /path/to/interview.mov --project acme_doc
-theodore transcribe --project acme_doc --interviewer 1
-theodore analyze --project acme_doc --model-tier standard
-theodore markers --project acme_doc --dry-run   # preview first
-theodore markers --project acme_doc             # write to the open Resolve timeline
-theodore notes --project acme_doc
+theodore ingest /path/to/haylee_interview.mov --project veterans_doc --subject haylee
+theodore transcribe --project veterans_doc --subject haylee --interviewer 1
+theodore analyze --project veterans_doc --subject haylee --model-tier standard
+theodore markers --project veterans_doc --subject haylee --dry-run   # preview first
+theodore markers --project veterans_doc --subject haylee             # write to the open Resolve timeline
+theodore notes --project veterans_doc --subject haylee
 
-theodore status --project acme_doc
+theodore status --project veterans_doc             # every subject's stage status
+theodore ids --project veterans_doc --subject haylee  # the id -> question mapping
 ```
+
+Repeat `ingest`/`transcribe`/`analyze`/... with `--subject marcus` (etc.) to
+add more people to the same project.
 
 `transcribe` will interactively ask you to name each speaker Deepgram
 detected, showing you their first ~30 words as a sample (e.g. `Speaker 0` →
-`Marcus (subject)`). That mapping is saved to
-`data/acme_doc/speakers.json` and reused on future runs. `--interviewer 1`
+`Haylee Reyes`). That mapping is saved to the subject's `speakers.json` and
+`project.json`'s `speaker_map`, and reused on future runs. `--interviewer 1`
 hints which speaker is asking questions, which meaningfully improves the
 segmenter's accuracy.
 
-Every stage caches its expensive work to `data/<project>/` — re-running
-`theodore transcribe` on the same audio never re-bills Deepgram, and each
-`analyze` sub-pass (segmenter/selects/themes) is independently re-runnable.
+Every stage caches its expensive work — re-running `theodore transcribe` on
+the same audio never re-bills Deepgram, and each `analyze` sub-pass
+(segmenter/selects/themes) is independently re-runnable. Segment ids are
+**immutable**: re-running the segmenter matches new output against a
+subject's existing `segments.json` (by exact utterance overlap, then a
+Haiku similarity pass for anything that shifted) rather than renumbering
+everything, so a saved reference to `haylee.q03` never silently starts
+pointing at a different answer.
+
+If a project defines a `question_guide` in `project.json` (a shared list of
+canonical questions), `analyze` also runs a Haiku pass mapping each
+subject's actual questions to guide ids (`--addressing canonical`, the
+default once a guide exists) — so `q03` means the same *question* for every
+subject, letting you eventually pull every subject's answer to the same
+prompt and rank by strength. This is layered on top of each segment's
+immutable sequential id, never a replacement for it.
 
 Output, per project:
 
 ```
 data/<project>/
-├── media.json              # ffprobe metadata (exact fps, duration, start TC)
-├── audio/<hash>.wav         # extracted mono 16kHz audio
-├── transcript_raw.json      # full raw Deepgram response
-├── transcript_cache/         # cached raw responses, keyed by audio content hash
-├── transcript.json          # normalized transcript (Theodore's schema)
-├── speakers.json            # speaker id -> display name
-├── segments.json            # Pass 3A: Q/A boundaries
-├── selects.json             # Pass 3B: usability scoring + clean in/out
-├── themes.json              # Pass 3C: controlled theme vocabulary + tags
-├── analysis.json            # segments + selects + themes, combined
-├── markers.edl               # EDL fallback, written only if Resolve wasn't reachable
-├── interview_notes.md        # human-readable interview log
-├── selects.csv               # machine-readable, sorted by strength
-└── theodore.log              # structured log for the whole run
+├── project.json               # registry: subjects, question guide, addressing mode
+└── subjects/<subject_id>/
+    ├── media.json              # ffprobe metadata (exact fps, duration, start TC)
+    ├── audio/<hash>.wav         # extracted mono 16kHz audio
+    ├── transcript_raw.json      # full raw Deepgram response
+    ├── transcript_cache/         # cached raw responses, keyed by audio content hash
+    ├── transcript.json          # normalized transcript (Theodore's schema)
+    ├── speakers.json            # speaker id -> display name
+    ├── segments.json            # Pass 3A: Q/A boundaries, immutable "<subject>.q<NN>" ids
+    ├── selects.json             # Pass 3B: usability scoring + clean in/out
+    ├── themes.json              # Pass 3C: controlled theme vocabulary + tags
+    ├── analysis.json            # segments + selects + themes, combined
+    ├── markers.edl               # EDL fallback, written only if Resolve wasn't reachable
+    ├── interview_notes.md        # human-readable interview log
+    └── selects.csv               # machine-readable, sorted by strength
 ```
+
+A legacy (pre-registry) project — a flat `data/<project>/transcript.json`
+et al. with no `project.json` — is migrated automatically and
+**non-destructively** the first time any command touches it: the original
+flat files are copied (never moved) into `subjects/<project-name>/`, so
+nothing is lost if the migration needs to be redone.
+
+`theodore.log` is written once per project (`data/<project>/theodore.log`),
+interleaving every subject's activity chronologically.
 
 ## CLI reference
 
 ```
-theodore ingest <file|dir> --project <name>
-theodore transcribe --project <name> [--interviewer <speaker_id>] [--force]
-theodore analyze --project <name> [--model-tier economy|standard|premium] [--allow-cost-over]
-theodore markers --project <name> [--dry-run] [--overwrite]
-theodore notes --project <name>
-theodore run <file> --project <name>      # full pipeline, one command
-theodore status --project <name>          # which stages are complete/cached
+theodore ingest <file|dir> --project <name> --subject <id> [--display-name <name>]
+theodore transcribe --project <name> --subject <id> [--interviewer <speaker_id>] [--force]
+theodore analyze --project <name> --subject <id> [--model-tier economy|standard|premium] [--addressing sequential|canonical] [--allow-cost-over]
+theodore markers --project <name> --subject <id> [--dry-run] [--overwrite]
+theodore notes --project <name> --subject <id>
+theodore ids --project <name> --subject <id>          # immutable id -> question mapping
+theodore run <file> --project <name> --subject <id>    # full pipeline, one command
+theodore status --project <name> [--subject <id>]      # which stages are complete/cached
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see
@@ -115,7 +156,8 @@ uses Haiku for the structural segmenter pass and Sonnet for the editorial
 selects/themes passes, `premium` upgrades those to Opus. Every `analyze` run
 prints a pre-flight cost estimate and a per-pass cost breakdown at the end;
 `THEODORE_MAX_COST_USD` (default `20.0`) is a hard stop you can bypass with
-`--allow-cost-over`.
+`--allow-cost-over`. Id-matching and question-guide-matching are always
+Haiku, regardless of tier — they're similarity tasks, not editorial judgment.
 
 ## Architecture
 
@@ -123,12 +165,14 @@ prints a pre-flight cost estimate and a per-pass cost breakdown at the end;
 theodore/
 ├── cli.py                  # entry point, command routing, progress output
 ├── config.py                # API keys, paths, model routing, cost guardrails
+├── registry.py               # project.json: subjects, immutable-id counters, migration
 ├── ingest/                  # ffprobe metadata + ffmpeg audio extraction
 ├── transcribe/               # Deepgram Nova-3 client + content-hash caching
-├── analyze/                  # Claude passes: segmenter, selects, themes
+├── analyze/                  # Claude passes: segmenter, selects, themes, id-matching, question-guide
 │   └── prompts/               # every prompt as a versioned .md file
 ├── resolve/                  # timecode math, Resolve connection, marker writing
-└── export/                   # notes.md / selects.csv / EDL fallback
+├── assembly/                 # trim proposals, ordering strategies, cut-list frame math
+└── export/                   # notes.md / selects.csv / review.html / EDL fallback
 ```
 
 **`analyze/` never imports from `resolve/`.** Analysis produces

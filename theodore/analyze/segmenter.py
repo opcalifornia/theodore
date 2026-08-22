@@ -10,6 +10,7 @@ import anthropic
 from theodore import config
 from theodore.analyze.chunking import chunk_items
 from theodore.analyze.claude_client import CostTracker, call_json
+from theodore.analyze.id_matching import assign_immutable_ids
 
 logger = logging.getLogger("theodore.analyze.segmenter")
 
@@ -46,11 +47,20 @@ def _dedupe_segments(segments: list[dict]) -> list[dict]:
 def run_segmenter(
     transcript: dict,
     *,
+    subject_id: str,
     interviewer: Optional[str],
     model_tier: str,
     cost_tracker: CostTracker,
+    existing_segments: Optional[list[dict]] = None,
+    next_question_number: int = 1,
     client: Optional[anthropic.Anthropic] = None,
-) -> dict:
+) -> tuple[dict, int]:
+    """Returns ({"segments": [...]}, updated_next_question_number). Segment
+    ids are immutable "<subject_id>.q<NN>" ids assigned by
+    analyze.id_matching against `existing_segments` (a prior run's
+    segments.json, if any) -- callers MUST persist the returned counter back
+    to the registry even when it didn't change, since it's authoritative.
+    """
     client = client or anthropic.Anthropic(api_key=config.require_anthropic_key())
     model = config.model_for_pass("segmenter", model_tier)
     system = PROMPT_PATH.read_text()
@@ -67,6 +77,8 @@ def run_segmenter(
         all_segments.extend(result.get("segments", []))
 
     segments = _dedupe_segments(all_segments)
-    for i, seg in enumerate(segments, start=1):
-        seg["id"] = f"s{i:03d}"
-    return {"segments": segments}
+    segments, next_question_number = assign_immutable_ids(
+        segments, existing_segments or [], subject_id, next_question_number,
+        cost_tracker=cost_tracker, client=client,
+    )
+    return {"segments": segments}, next_question_number

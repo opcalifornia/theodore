@@ -142,9 +142,13 @@ def test_run_segmenter_dedupes_across_overlapping_chunks(monkeypatch):
     }
     # Same segment reported twice (simulating two overlapping chunks) should dedupe to one.
     client = FakeClient([_json_response({"segments": [seg]})])
-    result = run_segmenter(_TRANSCRIPT, interviewer="1", model_tier="standard", cost_tracker=CostTracker(), client=client)
+    result, next_num = run_segmenter(
+        _TRANSCRIPT, subject_id="marcus", interviewer="1", model_tier="standard",
+        cost_tracker=CostTracker(), client=client,
+    )
     assert len(result["segments"]) == 1
-    assert result["segments"][0]["id"] == "s001"
+    assert result["segments"][0]["id"] == "marcus.q01"
+    assert next_num == 2
 
 
 def test_run_selects_formats_segment_utterance_span():
