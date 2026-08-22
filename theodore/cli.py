@@ -34,6 +34,7 @@ from theodore.ingest import audio as ingest_audio
 from theodore.ingest import media as ingest_media
 from theodore.resolve import connection as resolve_connection
 from theodore.resolve import markers as resolve_markers
+from theodore.resolve import multicam as resolve_multicam
 from theodore.resolve import timecode
 from theodore.transcribe import deepgram as dg
 
@@ -916,6 +917,78 @@ def _reject_foreign_subjects(segment_ids: list, subject: str) -> None:
             f"{', '.join(foreign[:5])}. Cross-subject builds aren't supported by "
             "`theodore build` yet -- for now, an edit list built with `theodore build` must "
             "stay within one subject's own segments."
+        )
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+@click.option("--check-resolve/--no-check-resolve", default=True,
+              help="Also ask the open Resolve project which of the proposed multicam clips "
+                   "already exist. Skipped silently when Resolve isn't reachable.")
+def multicam(project: str, subject: str, check_resolve: bool):
+    """Find which of a subject's camera files are angles of the same moment,
+    and name the multicam clip(s) to create in Resolve.
+
+    Works off the embedded timecode `theodore ingest` already probed, so it
+    needs no analysis pass and no Resolve connection. Files with no embedded
+    timecode (ffprobe reports 00:00:00:00) are never grouped -- that is the
+    absence of a sync signal, not a start at frame zero.
+
+    Theodore does NOT create the multicam clip: that is a manual step in
+    Resolve (select the angles -> right-click -> New Multicam Clip Using...).
+    Name it EXACTLY what this command prints and `theodore build` will pick
+    it up automatically; if it doesn't exist, the build just uses the plain
+    source clip.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    media = ingest_media.load_media_info(subj_dir)
+    if not media:
+        raise click.ClickException(
+            f"No media.json for '{subject}' -- run `theodore ingest` for this subject first."
+        )
+
+    with Stopwatch(f"Checking {len(media)} ingested file(s) for synchronized camera angles"):
+        plan = resolve_multicam.plan_multicam(media, subject)
+    out = resolve_multicam.save_multicam(plan, subj_dir)
+
+    click.echo(resolve_multicam.format_plan(plan))
+    click.echo(f"\nWrote {out}")
+
+    if not plan.groups:
+        click.echo(
+            "\nNothing to create in Resolve. `theodore build` will use the plain source "
+            "clips, which is the normal path."
+        )
+        return
+
+    existing: list[str] = []
+    missing = [g.multicam_clip_name for g in plan.groups]
+    if check_resolve:
+        try:
+            handles = resolve_connection.connect()
+        except resolve_connection.ResolveConnectionError as exc:
+            click.echo(f"\n(Didn't check the Resolve media pool: {exc.args[0].splitlines()[0]})")
+        else:
+            status = resolve_multicam.check_multicam_clips(handles, plan)
+            existing, missing = status["existing"], status["missing"]
+            for name in existing:
+                click.echo(f"\nAlready in the media pool: {name}  -- nothing to do.")
+
+    if missing:
+        click.echo("\nNEXT STEP -- create these in Resolve, named EXACTLY:")
+        for name in missing:
+            group = next(g for g in plan.groups if g.multicam_clip_name == name)
+            click.echo(f"\n  {name}")
+            for angle in group.angles:
+                click.echo(f"      {angle.name}")
+        click.echo(
+            "\n  In Resolve: select those angle clips in the Media Pool, right-click ->\n"
+            "  'New Multicam Clip Using...', set Angle Sync to Timecode, and set the\n"
+            "  clip name to the exact name above. Then re-run `theodore build`."
         )
 
 

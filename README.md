@@ -9,8 +9,9 @@ markers — plus exports human-readable notes.
 This is v1, the v1.5 rough-assembly layer, and v2.0's conversational editor
 through delivery analysis. **Currently built and tested:** ingest →
 transcribe → analyze → markers → notes (v1); trim proposals, `review.html`,
-assembly ordering strategies, and real Resolve timeline construction
-(v1.5 — only `resolve/multicam.py` is still unbuilt); the multi-subject
+assembly ordering strategies, real Resolve timeline construction, and
+multicam angle detection (`theodore multicam`) (v1.5 — complete); the
+multi-subject
 registry with immutable ids and canonical question-guide matching, versioned
 edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
@@ -157,6 +158,19 @@ version — a saved version is a recorded decision, and duration targeting
 silently reshaping it would violate the same "never surgically mutate,
 always derive a new version" rule the rest of the edit-list layer holds to.
 
+`theodore multicam` reads the embedded timecode `ingest` already probed and
+works out which of a subject's camera files were rolling on the same moment,
+writing `multicam.json` and printing the exact clip name to use. Theodore
+deliberately does not create the Multicam Clip itself — that stays a manual
+step in Resolve (select the angles → right-click → "New Multicam Clip
+Using…", Angle Sync: Timecode), named exactly what the command printed.
+`theodore build` then finds it by that name and builds from it instead of the
+plain source clip; if it isn't there, the build warns and falls back, so a
+forgotten step is never a failed build. Grouping is conservative on purpose:
+files with no embedded timecode (ffprobe reports `00:00:00:00`) are never
+grouped, audio-only files are excluded, and a chain of partial overlaps is
+reported as ambiguous rather than resolved by a guess.
+
 `theodore learn` compares Selects' strength predictions against the
 current edit list version's actual kept/dropped state, surfacing where
 they diverge — a strong segment that isn't in the current cut, or a weak
@@ -182,6 +196,7 @@ data/<project>/
     ├── analysis.json            # segments + selects + themes, combined
     ├── delivery.json            # v2.0 Part 3: pitch/energy/pause/onset-delay profiles (optional)
     ├── redundancy.json          # v2.0 Part 4: near-duplicate answer groups (optional)
+    ├── multicam.json             # v1.5: detected camera-angle groups + proposed clip names (optional)
     ├── markers.edl               # EDL fallback, written only if Resolve wasn't reachable
     ├── interview_notes.md        # human-readable interview log
     └── selects.csv               # machine-readable, sorted by strength
@@ -213,6 +228,7 @@ theodore status --project <name> [--subject <id>]      # which stages are comple
 theodore review --project <name> --subject <id> [--mode ...] [--exclude ids]   # review.html before building anything
 theodore captions --project <name> --subject <id> [--srt] [--vtt] [--import-to-resolve]
 theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorted by strength
+theodore multicam --project <name> --subject <id>      # group synced camera angles; names the multicam clip to create in Resolve
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
