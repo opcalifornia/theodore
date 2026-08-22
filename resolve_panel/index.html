@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Theodore</title>
+  <link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+  <header id="topbar">
+    <div id="picker">
+      <label>Project
+        <select id="project-select"></select>
+      </label>
+      <label>Subject
+        <select id="subject-select"></select>
+      </label>
+      <button id="refresh-btn" title="Re-read this subject's files">Refresh</button>
+    </div>
+    <div id="resolve-status">Resolve project: <span id="resolve-project-name">(not connected)</span></div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab-btn active" data-tab="segments">Segments</button>
+    <button class="tab-btn" data-tab="dupes">Dupes</button>
+    <button class="tab-btn" data-tab="gaps">Gaps</button>
+    <button class="tab-btn" data-tab="say">Say / Pending</button>
+  </nav>
+
+  <main>
+    <section id="tab-segments" class="tab-panel active">
+      <table id="segments-table">
+        <thead>
+          <tr><th>id</th><th>question</th><th>strength</th><th>best line</th><th>issues</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="tab-dupes" class="tab-panel">
+      <button id="run-dupes-btn">Run theodore dupes</button>
+      <pre id="dupes-output" class="console"></pre>
+    </section>
+
+    <section id="tab-gaps" class="tab-panel">
+      <button id="run-gaps-btn">Run theodore gaps</button>
+      <pre id="gaps-output" class="console"></pre>
+    </section>
+
+    <section id="tab-say" class="tab-panel">
+      <div id="say-row">
+        <input id="say-input" type="text" placeholder='e.g. move haylee.q03 after marcus.q04'>
+        <button id="say-btn">Say</button>
+      </div>
+      <h3>Pending queue</h3>
+      <ul id="pending-list"></ul>
+      <button id="build-btn">Build (theodore build)</button>
+      <pre id="say-output" class="console"></pre>
+    </section>
+  </main>
+
+  <script src="js/renderer.js"></script>
+</body>
+</html>

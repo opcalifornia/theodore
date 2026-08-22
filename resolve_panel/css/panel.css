@@ -1,0 +1,71 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: #ddd;
+  background: #1e1e1e;
+}
+
+#topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+#picker label { margin-right: 12px; }
+select, input, button {
+  background: #333;
+  color: #ddd;
+  border: 1px solid #4a4a4a;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+button { cursor: pointer; }
+button:hover { background: #3d3d3d; }
+
+#resolve-status { color: #999; }
+
+#tabs { display: flex; background: #232323; border-bottom: 1px solid #3a3a3a; }
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 8px 16px;
+  color: #999;
+}
+.tab-btn.active { color: #fff; border-bottom: 2px solid #5b9dd9; }
+
+main { padding: 12px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid #333;
+  vertical-align: top;
+}
+th { color: #999; font-weight: normal; }
+
+.console {
+  background: #141414;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 8px;
+  white-space: pre-wrap;
+  min-height: 4em;
+  margin-top: 8px;
+}
+
+#say-row { display: flex; gap: 8px; margin-bottom: 12px; }
+#say-input { flex: 1; }
+
+#pending-list { list-style: none; padding: 0; }
+#pending-list li { padding: 3px 0; border-bottom: 1px solid #2a2a2a; }

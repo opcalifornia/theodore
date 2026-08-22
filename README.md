@@ -341,6 +341,20 @@ Anthropic client, and marker writing against a fake Resolve timeline. None
 of the tests require a Deepgram/Anthropic API key or a running Resolve
 instance.
 
+## DaVinci Resolve panel
+
+`resolve_panel/` is a real DaVinci Resolve Studio Workflow Integration
+Plugin (Electron, loaded into Resolve's own UI via `Workspace -> Workflow
+Integrations`) that surfaces segments/selects/dupes/gaps and runs `say`/
+`build` without leaving Resolve. It's a thin window onto the same CLI and
+the same JSON files documented above — no changes to the Python package
+were needed to add it. It was scaffolded in a session with no Resolve
+installed and no display, so its data/command bridge has a real
+`node --test` suite, but the Electron shell and the live Resolve
+connection are unverified until run on a machine with Resolve Studio —
+see `resolve_panel/README.md` for exactly what's tested versus what still
+needs a first real run, and setup instructions.
+
 ## Future phases
 
 Theodore's architecture is built to grow into these without a rewrite —

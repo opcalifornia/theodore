@@ -1,0 +1,13 @@
+{
+  "name": "theodore-resolve-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DaVinci Resolve Studio Workflow Integration panel for Theodore.",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "electron": "^32.0.0"
+  }
+}
