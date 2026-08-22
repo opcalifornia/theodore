@@ -17,14 +17,14 @@ ordering-pass assembly and a rebuild from a persisted edit list:
     carrying the narrative pass's explanation.
   - v2 conversational editing: a command mutates a persisted edit list, and
     a fresh timeline is rebuilt from it. ``mode`` is then just a label
-    (``"v003"``), ``rationale`` is None, and ``timeline_name`` is passed
-    explicitly (``THEODORE_<project>_v003``). Nothing here requires the plan
-    to have come from an ordering pass, and nothing re-derives the order.
+    (``"v003"``), ``rationale`` is None, and ``name`` is passed explicitly
+    (``THEODORE_<project>_v003``). Nothing here requires the plan to have
+    come from an ordering pass, and nothing re-derives the order.
 
-Timeline naming is a parameter, not a policy: pass ``timeline_name=`` for
-full control, or ``project``/``subject``/``mode`` to get the default
+Timeline naming is a parameter, not a policy: pass ``name=`` for full
+control, or ``project``/``subject``/``mode`` to get the default
 ``THEODORE_<project>_<subject>_<mode>_<timestamp>`` construction from
-:func:`default_timeline_name`.
+:func:`timeline_name`.
 
 Structure mirrors ``resolve/markers.py`` deliberately:
 
@@ -171,11 +171,11 @@ def sanitize_name_part(value: str) -> str:
     return cleaned or "unnamed"
 
 
-def default_timeline_name(project: str, subject: str, mode: str, *, timestamp: Optional[str] = None) -> str:
+def timeline_name(project: str, subject: str, mode: str, *, timestamp: Optional[str] = None) -> str:
     """``THEODORE_<project>_<subject>_<mode>_<YYYYmmdd_HHMMSS>``.
 
     Only a default. Callers that name timelines on their own scheme (v2's
-    per-edit-list ``THEODORE_<project>_v003``) pass ``timeline_name=``
+    per-edit-list ``THEODORE_<project>_v003``) pass ``name=``
     to :func:`build_timeline` instead and never touch this.
 
     The timestamp is what keeps repeated builds from colliding with each
@@ -322,7 +322,7 @@ def describe_build(
     plan: list[AssemblyClip],
     *,
     transcript: dict,
-    timeline_name: Optional[str] = None,
+    name: Optional[str] = None,
     project: Optional[str] = None,
     subject: Optional[str] = None,
     mode: str = "custom",
@@ -337,7 +337,7 @@ def describe_build(
     ones), so a caller can build one argument dict and use it for both.
     """
     fps = transcript["fps"]
-    intended_name = timeline_name or default_timeline_name(
+    intended_name = name or timeline_name(
         project or "?", subject or "?", mode, timestamp="<timestamp>",
     )
     runtime = assembly_plan.total_runtime_frames(plan)
@@ -863,7 +863,7 @@ def build_timeline(
     *,
     transcript: dict,
     analysis: dict,
-    timeline_name: Optional[str] = None,
+    name: Optional[str] = None,
     project: Optional[str] = None,
     subject: Optional[str] = None,
     mode: str = "custom",
@@ -898,9 +898,9 @@ def build_timeline(
         An ordered ``list[AssemblyClip]``, normally from
         :func:`assembly.plan.build_plan` -- the single source of truth for
         every in/out frame. Nothing here recomputes or reorders it.
-    timeline_name:
+    name:
         The exact name for the new timeline. Omit it to get
-        :func:`default_timeline_name`'s
+        :func:`timeline_name`'s
         ``THEODORE_<project>_<subject>_<mode>_<timestamp>``, in which case
         `project` and `subject` are required.
     project, subject, mode:
