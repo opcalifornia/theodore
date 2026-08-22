@@ -10,12 +10,13 @@ from typing import Optional
 
 import click
 
-from theodore import config, registry
+from theodore import config, edits, registry
 from theodore.analyze.claude_client import CostTracker
 from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
 from theodore.analyze.selects import run_selects
 from theodore.analyze.themes import run_themes
+from theodore.assembly import builder as assembly_builder
 from theodore.assembly import ordering as assembly_ordering
 from theodore.assembly import plan as assembly_plan
 from theodore.assembly import trim as assembly_trim
@@ -585,6 +586,203 @@ def run(ctx, source, project, subject, display_name, interviewer, model_tier, ad
     ctx.invoke(markers, project=project, subject=subject, dry_run=dry_run, overwrite=overwrite)
     ctx.invoke(notes, project=project, subject=subject)
     click.echo(f"\nFull pipeline finished in {time.monotonic() - start:.1f}s")
+
+
+def _connect_or_die() -> resolve_connection.ResolveHandles:
+    try:
+        return resolve_connection.connect()
+    except resolve_connection.ResolveConnectionError as exc:
+        raise click.ClickException(
+            f"Could not connect to Resolve: {exc}\n\n"
+            "Unlike `theodore markers`, there is no file-based fallback for building an "
+            "actual timeline -- appending clips means talking to a live Resolve project. "
+            "Your edit list and analysis are safe either way; open Resolve and re-run."
+        ) from exc
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True, help="Whose segments this build covers. Cross-subject edit lists aren't supported yet.")
+@click.option("--mode", type=MODE_CHOICE, default=None,
+              help="Run a fresh ordering pass and seed/derive a new edit version from it. Omit to rebuild the CURRENT version as-is.")
+@click.option("--handles", default=config.DEFAULT_HANDLE_FRAMES, type=int)
+@click.option("--silence-threshold", default=config.DEFAULT_SILENCE_THRESHOLD_SECONDS, type=float)
+@click.option("--aggressive-trim", is_flag=True)
+@click.option("--trim/--no-trim", "apply_trim", default=True)
+@click.option("--exclude", default=None, help="Comma-separated segment ids to leave out (only meaningful with --mode).")
+@click.option("--model-tier", type=MODEL_TIER_CHOICE, default=config.DEFAULT_MODEL_TIER)
+@click.option("--dry-run", is_flag=True)
+def build(project, subject, mode, handles, silence_threshold, aggressive_trim, apply_trim,
+          exclude, model_tier, dry_run):
+    """Build (or rebuild) a real Resolve timeline from the project's edit list.
+
+    Never touches an existing timeline -- every build creates a new one. With
+    --mode, runs a fresh ordering pass and records it as a new edit list
+    version (v001 if none exists yet, otherwise a derived version on top of
+    the current one). Without --mode, rebuilds the CURRENT version exactly
+    as it stands -- this is what `theodore say` leads to after queued
+    commands are confirmed.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    cost_tracker = CostTracker()
+    rationale = None
+
+    if mode is not None:
+        # Fresh assembly from an ordering pass. Nothing here is persisted
+        # under --dry-run -- computing a preview must not seed a real edit
+        # list version or move current_edit_version out from under you.
+        trims = {}
+        if apply_trim:
+            trims = assembly_trim.compute_trims(
+                analysis, transcript, silence_threshold=silence_threshold, aggressive=aggressive_trim,
+            )
+        excluded = _parse_exclude(exclude, analysis)
+        order, rationale = assembly_ordering.compute_order(
+            analysis, mode, model_tier=model_tier, cost_tracker=cost_tracker,
+        )
+        segment_ids = [sid for sid in order if sid not in excluded]
+        version_label = mode
+
+        if not dry_run:
+            if apply_trim:
+                assembly_trim.save_trims(trims, subj_dir)
+            current = edits.load_current(project_dir, reg)
+            entries = [edits.EditEntry(sid) for sid in segment_ids]
+            if current is None:
+                edit_list = edits.create_initial(project_dir, segment_ids, command_log=[f"assemble --mode {mode}"])
+            else:
+                edit_list = edits.derive(project_dir, current, entries, [f"rebuild --mode {mode}"])
+            edits.set_current_version(reg, edit_list.version)
+            registry.save_project(project_dir, reg)
+            version_label = edit_list.version
+    else:
+        # Rebuild the CURRENT persisted edit list exactly as it stands --
+        # this is what `theodore say` leads to after commands are confirmed.
+        edit_list = edits.load_current(project_dir, reg)
+        if edit_list is None:
+            raise click.ClickException(
+                "No edit list yet for this project -- run `theodore build --mode <mode>` "
+                "once to seed one, or `theodore say` to start one conversationally."
+            )
+        segment_ids = edit_list.segment_ids
+        version_label = edit_list.version
+        base_trims = assembly_trim.load_trims(subj_dir)
+        trims = edits.apply_overrides_to_trims(edit_list, base_trims)
+
+    foreign = [sid for sid in segment_ids if not sid.startswith(f"{subject}.")]
+    if foreign:
+        raise click.ClickException(
+            f"This edit list references segment(s) belonging to another subject: "
+            f"{', '.join(foreign[:5])}. Cross-subject builds aren't supported by "
+            "`theodore build` yet -- for now, an edit list built with `theodore build` must "
+            "stay within one subject's own segments."
+        )
+
+    plan = assembly_plan.build_plan(transcript, analysis, trims, segment_ids, handle_frames=handles)
+
+    if dry_run:
+        click.echo(assembly_builder.describe_build(
+            plan, transcript=transcript, project=project, subject=subject, mode=version_label,
+            analysis=analysis, rationale=rationale, handle_frames=handles,
+        ))
+        return
+
+    handles_ = _connect_or_die()
+    multicam = assembly_builder.load_multicam(subj_dir / "multicam.json")
+    result = assembly_builder.build_timeline(
+        handles_, plan, transcript=transcript, analysis=analysis,
+        project=project, subject=subject, mode=version_label,
+        trims=trims, rationale=rationale, multicam=multicam,
+    )
+    if cost_tracker.calls:
+        click.echo(f"Estimated cost this run:\n{cost_tracker.summary()}\n")
+    click.echo(assembly_builder.format_result(result))
+
+
+@cli.command()
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+@click.option("--handles", default=config.DEFAULT_HANDLE_FRAMES, type=int)
+@click.option("--dry-run", is_flag=True)
+def untrim(project: str, subject: str, handles: int, dry_run: bool):
+    """Rebuild the current edit list's assembly at full (untrimmed) length."""
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    edit_list = edits.load_current(project_dir, reg)
+    order = edit_list.segment_ids if edit_list else [s["id"] for s in analysis["segments"]]
+
+    plan = assembly_builder.build_untrimmed_plan(transcript, analysis, order, handle_frames=handles)
+
+    if dry_run:
+        click.echo(assembly_builder.describe_build(
+            plan, transcript=transcript, project=project, subject=subject, mode="untrimmed",
+            analysis=analysis, handle_frames=handles,
+        ))
+        return
+
+    handles_ = _connect_or_die()
+    result = assembly_builder.build_timeline(
+        handles_, plan, transcript=transcript, analysis=analysis,
+        project=project, subject=subject, mode="untrimmed",
+    )
+    click.echo(assembly_builder.format_result(result))
+
+
+@cli.command()
+@click.option("--project", required=True)
+def versions(project: str):
+    """List every edit list version, its parent, and its command log."""
+    project_dir, reg = _load_registry(project)
+    current = reg.get("current_edit_version")
+    version_names = edits.list_versions(project_dir)
+    if not version_names:
+        click.echo("No edit list versions yet -- run `theodore build --mode <mode>` to seed one.")
+        return
+    for name in version_names:
+        el = edits.load(project_dir, name)
+        marker = "  <- current" if name == current else ""
+        click.echo(f"{name}  (parent: {el.parent or '-'}, {len(el.sequence)} clips){marker}")
+        for c in el.command_log:
+            click.echo(f"    - {c}")
+
+
+@cli.command()
+@click.argument("version")
+@click.option("--project", required=True)
+def revert(version: str, project: str):
+    """Fork a NEW edit list version carrying VERSION's sequence -- never rewinds history."""
+    project_dir, reg = _load_registry(project)
+    try:
+        reverted = edits.revert(project_dir, version)
+    except edits.EditListError as exc:
+        raise click.ClickException(str(exc)) from exc
+    edits.set_current_version(reg, reverted.version)
+    registry.save_project(project_dir, reg)
+    click.echo(f"Reverted to {version} as new version {reverted.version} (now current). Run `theodore build` to rebuild it.")
+
+
+@cli.command(name="diff")
+@click.argument("version_a")
+@click.argument("version_b")
+@click.option("--project", required=True)
+def diff_versions(version_a: str, version_b: str, project: str):
+    """Show what changed between two edit list versions."""
+    project_dir, reg = _load_registry(project)
+    try:
+        a = edits.load(project_dir, version_a)
+        b = edits.load(project_dir, version_b)
+    except edits.EditListError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(edits.format_diff(edits.diff(a, b)))
 
 
 @cli.command()
