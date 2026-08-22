@@ -14,16 +14,16 @@ assembly ordering strategies, and real Resolve timeline construction
 registry with immutable ids and canonical question-guide matching, versioned
 edit lists (`theodore build`/`versions`/`revert`/`diff`), delivery/prosody
 analysis feeding a second axis into the Selects pass
-(`theodore delivery`/`peaks`), and redundancy detection across
-near-duplicate answers (`theodore dupes`) (v2.0 Parts 1-4 step 7).
-**Known limitation:** `theodore build` can't yet assemble a sequence
-spanning more than one subject (rejected with a clear error, not silently
-mis-built) — the "move haylee.q03 after marcus.q04" cross-subject case
-needs `assembly/plan.py` to work across multiple transcripts, which is
-follow-up work. **Not yet built:** semantic search, coverage/gap analysis,
-duration targeting, the learning loop, client export, and voice control.
-Module boundaries are deliberately kept clean so all of that is additive,
-not a rewrite.
+(`theodore delivery`/`peaks`), redundancy detection across near-duplicate
+answers (`theodore dupes`), and cross-subject plain-language search
+(`theodore find`) (v2.0 Parts 1-4 steps 7-8). **Known limitation:**
+`theodore build` can't yet assemble a sequence spanning more than one
+subject (rejected with a clear error, not silently mis-built) — the "move
+haylee.q03 after marcus.q04" cross-subject case needs `assembly/plan.py`
+to work across multiple transcripts, which is follow-up work. **Not yet
+built:** coverage/gap analysis, duration targeting, the learning loop,
+client export, and voice control. Module boundaries are deliberately kept
+clean so all of that is additive, not a rewrite.
 
 ## Requirements
 
@@ -127,6 +127,14 @@ every segment against every other, so it stays cheap; the recommended take
 within a group is just whichever member Selects already scored highest, no
 second judgment call needed.
 
+`theodore find "<query>"` searches segments in plain language across every
+registered subject by default (or one with `--subject`) — segment ids
+already carry their subject prefix, so a cross-subject result set (e.g.
+"someone talking about losing a parent" matching both `haylee.q01` and
+`marcus.q01`) stays unambiguous. It's a single Claude relevance pass over
+question/answer summaries, not an embeddings index — per-project segment
+counts are small enough that this is simpler and no less accurate.
+
 Output, per project:
 
 ```
@@ -189,8 +197,9 @@ theodore chat --project <name>                          # interactive REPL over 
 theodore delivery --project <name> --subject <id>       # pitch/energy/pause/onset-delay profiles
 theodore peaks --project <name> --subject <id>          # segments ranked by divergence from baseline
 
-# v2.0 Part 4 -- redundancy detection
-theodore dupes --project <name> --subject <id> [--model-tier ...]   # near-duplicate answers, pick-one groups
+# v2.0 Part 4 -- redundancy detection + semantic search
+theodore dupes --project <name> --subject <id> [--model-tier ...]      # near-duplicate answers, pick-one groups
+theodore find "<query>" --project <name> [--subject <id>] [--limit N]  # plain-language search, one or all subjects
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see

@@ -14,6 +14,7 @@ import click
 from theodore import commands, config, edits, registry
 from theodore.analyze import delivery as analyze_delivery
 from theodore.analyze import redundancy as analyze_redundancy
+from theodore.analyze import search as analyze_search
 from theodore.analyze.claude_client import CostTracker
 from theodore.analyze.question_guide import apply_canonical_ids, match_to_guide
 from theodore.analyze.segmenter import run_segmenter
@@ -399,6 +400,69 @@ def dupes(project: str, subject: str, model_tier: str):
             click.echo(f"  reason: {group['reason']}")
 
     click.echo(f"\nWrote {out}")
+    click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--project", required=True)
+@click.option("--subject", default=None, help="Search only this subject; omit to search every registered subject in the project.")
+@click.option("--model-tier", type=MODEL_TIER_CHOICE, default=config.DEFAULT_MODEL_TIER)
+@click.option("--limit", default=10, type=int, help="How many matches to show.")
+def find(query: str, project: str, subject: Optional[str], model_tier: str, limit: int):
+    """Search a project's segments in plain language, e.g.
+    `theodore find "someone talking about losing their mother"`.
+
+    Scoped to one subject with --subject, or every registered subject in
+    the project by default -- segment ids already carry their subject
+    prefix (haylee.q03), so cross-subject results stay unambiguous.
+    Needs `theodore analyze` to have run for whichever subjects it searches.
+    """
+    project_dir, reg = _load_registry(project)
+    _setup_logging(project_dir)
+
+    if subject:
+        _require_subject_dir(project_dir, reg, subject)
+        subjects = [subject]
+    else:
+        subjects = registry.list_subjects(reg)
+    if not subjects:
+        raise click.ClickException("No subjects registered yet -- run `theodore ingest --subject <name> ...` to add one.")
+
+    segments: list[dict] = []
+    selects: list[dict] = []
+    segments_by_id: dict[str, dict] = {}
+    searched = []
+    for subj in subjects:
+        subj_dir = registry.subject_dir(project_dir, subj)
+        analysis_path = subj_dir / "analysis.json"
+        if not analysis_path.exists():
+            continue
+        analysis = json.loads(analysis_path.read_text())
+        segments.extend(analysis.get("segments", []))
+        selects.extend(analysis.get("selects", []))
+        segments_by_id.update({s["id"]: s for s in analysis.get("segments", [])})
+        searched.append(subj)
+
+    if not segments:
+        raise click.ClickException("No analyzed segments found -- run `theodore analyze` for at least one subject first.")
+
+    cost_tracker = CostTracker()
+    with Stopwatch(f"Searching {len(segments)} segments across {len(searched)} subject(s)"):
+        result = analyze_search.run_search(
+            segments, query, model_tier=model_tier, cost_tracker=cost_tracker, selects=selects,
+        )
+
+    matches = result["matches"]
+    if not matches:
+        click.echo("No matches found.")
+    else:
+        for m in matches[:limit]:
+            seg = segments_by_id.get(m["segment_id"], {})
+            label = seg.get("question_text") or "(volunteered)"
+            click.echo(f"\n[{m.get('relevance', 0):.2f}] {m['segment_id']} -- {label}")
+            click.echo(f"  {m.get('reason', '')}")
+
     click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")
 
 
