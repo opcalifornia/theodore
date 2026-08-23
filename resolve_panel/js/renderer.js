@@ -4,6 +4,14 @@
 // surface available here is `window.theodore`, exposed via contextBridge.
 // No requires, no filesystem, no child_process -- this file is plain DOM
 // scripting, deliberately with no framework or build step.
+//
+// One shared scrolling console instead of a tab-per-command dashboard:
+// every action (ingest, a quick command, a chat line) appends to the same
+// #chat-log, the way a single conversation would -- not a maze of panels
+// to hunt through. Timeline-building surfaces (multicam clip naming,
+// versions/diff/revert, say/build) are deliberately not wired to a button
+// right now, since building a new timeline isn't today's workflow; the
+// CLI commands themselves are untouched and easy to re-surface later.
 
 const state = { project: null, subject: null };
 
@@ -65,55 +73,6 @@ async function refreshSubjects() {
   }
   state.subject = subjects[0] || null;
   if (state.subject) select.value = state.subject;
-  await refreshAll();
-}
-
-async function refreshAll() {
-  await Promise.all([refreshSegments(), refreshPending()]);
-}
-
-async function refreshSegments() {
-  const tbody = document.querySelector('#segments-table tbody');
-  tbody.innerHTML = '';
-  if (!state.project || !state.subject) return;
-
-  const analysis = await window.theodore.readAnalysis(state.project, state.subject);
-  if (!analysis) {
-    tbody.innerHTML = '<tr><td colspan="5">No analysis.json yet -- run `theodore analyze` first.</td></tr>';
-    return;
-  }
-
-  const selectsById = {};
-  for (const s of analysis.selects || []) selectsById[s.segment_id] = s;
-
-  for (const seg of analysis.segments || []) {
-    const sel = selectsById[seg.id] || {};
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHTML(seg.id)}</td>
-      <td>${escapeHTML(seg.question_text || '(volunteered)')}</td>
-      <td>${sel.strength != null ? sel.strength.toFixed(2) : ''}</td>
-      <td>${escapeHTML(sel.best_line || '')}</td>
-      <td>${escapeHTML((sel.issues || []).join(', '))}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-async function refreshPending() {
-  const list = el('pending-list');
-  list.innerHTML = '';
-  if (!state.project) return;
-  const pending = await window.theodore.readPending(state.project);
-  if (!pending || !pending.sequence || pending.sequence.length === 0) {
-    list.innerHTML = '<li>(nothing queued)</li>';
-    return;
-  }
-  for (const entry of pending.sequence) {
-    const li = document.createElement('li');
-    li.textContent = entry.segment_id;
-    list.appendChild(li);
-  }
 }
 
 function escapeHTML(s) {
@@ -122,14 +81,12 @@ function escapeHTML(s) {
   }[c]));
 }
 
-function switchTab(name) {
-  for (const btn of document.querySelectorAll('.tab-btn')) {
-    btn.classList.toggle('active', btn.dataset.tab === name);
-  }
-  for (const panel of document.querySelectorAll('.tab-panel')) {
-    panel.classList.toggle('active', panel.id === `tab-${name}`);
-  }
-  if (name === 'chat') ensureChatSession();
+// Every entry in this one shared console is appended, never replaces --
+// the whole point is a running record, like scrolling back through a chat.
+function appendConsole(text) {
+  const log = el('chat-log');
+  log.textContent += text;
+  log.scrollTop = log.scrollHeight;
 }
 
 function formatRunResult(result) {
@@ -140,38 +97,83 @@ function formatRunResult(result) {
   return lines.join('\n') || '(no output)';
 }
 
-// Every "click a button, run a theodore command, show the output" tab
-// (Dupes, Gaps, Delivery, Learn, Versions) is the same three steps.
-// `buildArgs` returns the argv array to run, or null to silently no-op
-// (e.g. nothing selected yet, or the user cancelled a confirm()).
-// `afterRun` is for the rare case something else needs a refresh
-// afterward (revert changes the current edit version).
-function bindRunButton(buttonId, outputId, buildArgs, afterRun) {
-  el(buttonId).addEventListener('click', async () => {
-    const args = buildArgs();
-    if (args === null) return;
-    const out = el(outputId);
-    out.textContent = 'Running...';
-    try {
-      const result = await window.theodore.run(args);
-      out.textContent = formatRunResult(result);
-      clearError();
-      if (afterRun) await afterRun();
-    } catch (err) {
-      // theodore.run() itself only throws before ever spawning a process
-      // (a missing/broken config, or a programming error in the args
-      // built above) -- an actual failed `theodore` command resolves with
-      // ok:false instead and is already shown via formatRunResult.
-      out.textContent = '(command did not run -- see error above)';
-      showError(err);
+function formatSegments(analysis) {
+  if (!analysis) return 'No analysis.json yet -- run Ingest & Analyze first.';
+  const selectsById = {};
+  for (const s of analysis.selects || []) selectsById[s.segment_id] = s;
+  const lines = [];
+  for (const seg of analysis.segments || []) {
+    const sel = selectsById[seg.id] || {};
+    const strength = sel.strength != null ? sel.strength.toFixed(2) : '?';
+    lines.push(`[${seg.id}] (${strength}) ${seg.question_text || '(volunteered)'}`);
+    if (sel.best_line) lines.push(`    "${sel.best_line}"`);
+    if (sel.issues && sel.issues.length) lines.push(`    issues: ${sel.issues.join(', ')}`);
+  }
+  return lines.join('\n') || '(no segments yet)';
+}
+
+// One-shot commands (Dupes/Gaps/Learn/Timeline Status): build the argv,
+// run it, print the result into the shared console. Segments and Find
+// have their own handlers below since they don't fit this exact shape
+// (Segments reads a file directly; Find needs the query text).
+async function runQuickAction(label, args) {
+  appendConsole(`\n> [${label}]\n`);
+  try {
+    const result = await window.theodore.run(args);
+    appendConsole(formatRunResult(result) + '\n');
+    clearError();
+  } catch (err) {
+    appendConsole('(command did not run -- see error above)\n');
+    showError(err);
+  }
+}
+
+function requireSubject(command) {
+  if (!state.project || !state.subject) {
+    showError('Pick a project and subject first.');
+    return null;
+  }
+  return [command, '--project', state.project, '--subject', state.subject];
+}
+
+function initQuickActions() {
+  el('quick-actions').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.action-btn');
+    if (!btn) return;
+    const action = btn.dataset.action;
+
+    if (action === 'segments') {
+      if (!state.project || !state.subject) { showError('Pick a project and subject first.'); return; }
+      appendConsole('\n> [Segments]\n');
+      try {
+        const analysis = await window.theodore.readAnalysis(state.project, state.subject);
+        appendConsole(formatSegments(analysis) + '\n');
+        clearError();
+      } catch (err) {
+        showError(err);
+      }
+      return;
     }
+
+    if (action === 'find') {
+      const query = el('find-input').value.trim();
+      if (!state.project || !query) { showError('Pick a project and type something to find first.'); return; }
+      await runQuickAction(`Find: ${query}`, ['find', query, '--project', state.project, '--subject', state.subject]);
+      el('find-input').value = '';
+      return;
+    }
+
+    const args = requireSubject(action);
+    if (args === null) return;
+    const labels = { 'timeline-status': 'Timeline Status', dupes: 'Dupes', gaps: 'Gaps', learn: 'Learn' };
+    await runQuickAction(labels[action] || action, args);
   });
 }
 
-// Ingest tab: pick footage with a native dialog (never type a path),
-// stream `theodore run`'s output live so a multi-minute pipeline never
-// looks frozen, then refresh the project/subject pickers so a
-// newly-registered project shows up without a manual Refresh click.
+// Ingest: pick footage with a native dialog (never type a path), stream
+// `theodore run`'s output live into the shared console so a multi-minute
+// pipeline never looks frozen, then refresh the project/subject pickers
+// so a newly-registered project shows up without a manual Refresh click.
 function initIngestTab() {
   let sourcePath = null;
 
@@ -191,28 +193,23 @@ function initIngestTab() {
   el('run-ingest-btn').addEventListener('click', () => {
     const project = el('ingest-project').value.trim();
     const subject = el('ingest-subject').value.trim();
-    const out = el('ingest-output');
 
     if (!sourcePath) { showError('Choose footage first.'); return; }
     if (!project || !subject) { showError('Project and subject are both required.'); return; }
 
     const args = ['run', sourcePath, '--project', project, '--subject', subject];
-    const displayName = el('ingest-display-name').value.trim();
-    const interviewer = el('ingest-interviewer').value.trim();
-    if (displayName) args.push('--display-name', displayName);
-    if (interviewer) args.push('--interviewer', interviewer);
 
     clearError();
-    out.textContent = '';
+    appendConsole(`\n> [Ingest & Analyze: ${project} / ${subject}]\n`);
     el('run-ingest-btn').disabled = true;
 
     window.theodore.runStreaming(
       args,
-      (chunk) => { out.textContent += chunk.text; out.scrollTop = out.scrollHeight; },
+      (chunk) => appendConsole(chunk.text),
       async (result) => {
         el('run-ingest-btn').disabled = false;
         if (!result.ok) {
-          out.textContent += `\n(exit code ${result.code}${result.error ? ': ' + result.error : ''})`;
+          appendConsole(`\n(exit code ${result.code}${result.error ? ': ' + result.error : ''})\n`);
         }
         // The run may have registered a brand-new project/subject --
         // reload the picker and land on exactly what was just built.
@@ -222,13 +219,12 @@ function initIngestTab() {
         await safely(refreshSubjects);
         el('subject-select').value = subject;
         state.subject = subject;
-        await safely(refreshAll);
       },
     );
   });
 }
 
-// Chat tab: a running `theodore chat --project X` conversation instead of
+// Chat: a running `theodore chat --project X` conversation instead of
 // one-shot `theodore say` calls, so instructions build on shared context
 // (the REPL's meta-commands: pending/versions/build/help) without
 // re-invoking the CLI per line. The child process doesn't echo what's
@@ -237,23 +233,17 @@ function initIngestTab() {
 // would ever appear.
 let chatProject = null;
 
-function appendChat(text) {
-  const log = el('chat-log');
-  log.textContent += text;
-  log.scrollTop = log.scrollHeight;
-}
-
 function ensureChatSession() {
   if (!state.project || chatProject === state.project) return;
   chatProject = state.project;
-  appendChat(`\n----- switching chat to project "${state.project}" -----\n`);
+  appendConsole(`\n----- switching chat to project "${state.project}" -----\n`);
   window.theodore.startChat(state.project);
 }
 
-function initChatTab() {
-  window.theodore.onChatOutput((chunk) => appendChat(chunk.text));
+function initChat() {
+  window.theodore.onChatOutput((chunk) => appendConsole(chunk.text));
   window.theodore.onChatExit((info) => {
-    appendChat(`\n(chat session ended${info.error ? ': ' + info.error : ''})\n`);
+    appendConsole(`\n(chat session ended${info.error ? ': ' + info.error : ''})\n`);
     chatProject = null;
   });
 
@@ -263,7 +253,7 @@ function initChatTab() {
     if (!line) return;
     if (!state.project) { showError('Pick a project first.'); return; }
     ensureChatSession();
-    appendChat(`> ${line}\n`);
+    appendConsole(`\n> ${line}\n`);
     window.theodore.sendChat(line);
     input.value = '';
   };
@@ -273,7 +263,8 @@ function initChatTab() {
 
 async function init() {
   initIngestTab();
-  initChatTab();
+  initQuickActions();
+  initChat();
 
   el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;
@@ -281,101 +272,8 @@ async function init() {
   });
   el('subject-select').addEventListener('change', (e) => {
     state.subject = e.target.value;
-    safely(refreshAll);
   });
-  el('refresh-btn').addEventListener('click', () => safely(refreshAll));
-
-  for (const btn of document.querySelectorAll('.tab-btn')) {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-  }
-
-  const requireSubject = (command) => () => {
-    if (!state.project || !state.subject) return null;
-    return [command, '--project', state.project, '--subject', state.subject];
-  };
-
-  bindRunButton('run-multicam-btn', 'multicam-output', requireSubject('multicam'));
-  bindRunButton('run-dupes-btn', 'dupes-output', requireSubject('dupes'));
-  bindRunButton('run-gaps-btn', 'gaps-output', requireSubject('gaps'));
-  bindRunButton('run-delivery-btn', 'delivery-output', requireSubject('delivery'));
-  bindRunButton('run-peaks-btn', 'delivery-output', requireSubject('peaks'));
-  bindRunButton('run-learn-btn', 'learn-output', requireSubject('learn'));
-
-  bindRunButton('run-versions-btn', 'versions-output', () => {
-    if (!state.project) return null;
-    return ['versions', '--project', state.project];
-  });
-
-  bindRunButton('run-diff-btn', 'versions-output', () => {
-    const a = el('diff-a-input').value.trim();
-    const b = el('diff-b-input').value.trim();
-    if (!state.project || !a || !b) return null;
-    return ['diff', a, b, '--project', state.project];
-  });
-
-  bindRunButton('run-revert-btn', 'versions-output', () => {
-    const v = el('revert-input').value.trim();
-    if (!state.project || !v) return null;
-    // Non-destructive by design (edits.revert() forks a new version forward,
-    // never deletes history) -- still a real persisted change, so confirm.
-    if (!confirm(`Revert to ${v}? This forks a new version on top of it and makes that the current one.`)) {
-      return null;
-    }
-    return ['revert', v, '--project', state.project];
-  }, refreshPending);
-
-  el('find-btn').addEventListener('click', async () => {
-    if (!state.project) return;
-    const query = el('find-input').value.trim();
-    if (!query) return;
-    const args = ['find', query, '--project', state.project];
-    if (el('find-scope-subject').checked && state.subject) {
-      args.push('--subject', state.subject);
-    }
-    const out = el('find-output');
-    out.textContent = 'Searching...';
-    try {
-      const result = await window.theodore.run(args);
-      out.textContent = formatRunResult(result);
-      clearError();
-    } catch (err) {
-      out.textContent = '(command did not run -- see error above)';
-      showError(err);
-    }
-  });
-
-  el('say-btn').addEventListener('click', async () => {
-    if (!state.project) return;
-    const text = el('say-input').value.trim();
-    if (!text) return;
-    const out = el('say-output');
-    out.textContent = 'Running...';
-    try {
-      const result = await window.theodore.run(['say', text, '--project', state.project]);
-      out.textContent = formatRunResult(result);
-      el('say-input').value = '';
-      clearError();
-      await refreshPending();
-    } catch (err) {
-      out.textContent = '(command did not run -- see error above)';
-      showError(err);
-    }
-  });
-
-  el('build-btn').addEventListener('click', async () => {
-    if (!state.project || !state.subject) return;
-    const out = el('say-output');
-    out.textContent = 'Building...';
-    try {
-      const result = await window.theodore.run(['build', '--project', state.project, '--subject', state.subject]);
-      out.textContent = formatRunResult(result);
-      clearError();
-      await refreshPending();
-    } catch (err) {
-      out.textContent = '(command did not run -- see error above)';
-      showError(err);
-    }
-  });
+  el('refresh-btn').addEventListener('click', () => safely(refreshProjects));
 
   // Resolve exposes no "project changed" event at all (its Workflow
   // Integration SDK only has RenderStart/RenderStop/ResolveQuit) -- there is

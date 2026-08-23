@@ -3,10 +3,17 @@
 A DaVinci Resolve Studio **Workflow Integration Plugin**: an Electron app
 that Resolve loads (`Workspace -> Workflow Integrations -> Theodore`),
 covering the entire loop -- picking raw footage and running the full
-ingest/transcribe/analyze pipeline, holding a live Claude-backed
-conversation about the edit, showing segments/selects, running `theodore
-dupes`/`gaps`, and driving `theodore say`/`build` -- with no terminal
-involved at any point.
+ingest/transcribe/analyze pipeline, and holding a live Claude-backed
+conversation about the edit -- with no terminal involved at any point.
+
+One screen, not a tab-per-command dashboard: a footage picker, a row of
+one-click actions (Timeline Status, Segments, Dupes, Gaps, Learn, Find),
+and a single scrolling console/chat below them that every action's output
+lands in -- closer to talking to Claude directly than hunting through a
+UI. Building a new timeline from scratch (`theodore build`, versions/
+diff/revert) isn't wired to a button right now, since that isn't the
+current workflow this panel is built around; the CLI commands themselves
+are untouched underneath and easy to re-surface later.
 
 **On "embedded panel" vs. a separate window:** Resolve's Workflow
 Integration SDK gives a third-party plugin its own top-level Electron
@@ -27,11 +34,15 @@ written and hoped about:
 **Actually verified, not just written:**
 - `npm install` succeeds and pulls a real, working Electron binary.
 - The app **actually launches** (verified under Xvfb with
-  `--no-sandbox`) and **actually renders** -- a real screenshot of the
-  live window shows the topbar, all 11 tabs, and a segments table
-  correctly populated from real `analysis.json` fixture data, read
-  through the real `contextBridge` -> `ipcMain` -> `theodore_bridge.js`
-  path, no mocking.
+  `--no-sandbox`) and **actually renders** -- real screenshots of the
+  live window show the single-pane layout (footage picker, quick-action
+  row, shared console) working end to end: a Segments quick action
+  correctly formats real `analysis.json` fixture data (read through the
+  real `contextBridge` -> `ipcMain` -> `theodore_bridge.js` path, no
+  mocking), a Dupes click runs the real `theodore` CLI and prints its
+  real output (including a real, uncaught error when no Anthropic key is
+  configured -- confirming failures surface honestly, not silently), and
+  a chat line lands in the exact same scrolling console right below it.
 - The missing-config failure mode (the single most likely first-run
   mistake: forgetting to copy/edit `theodore-panel-config.json`) was
   deliberately triggered and produces a clear red banner naming the exact
@@ -90,9 +101,11 @@ machine:**
   indicator works around this the only way possible: it polls
   `currentResolveProjectName` every 5 seconds on its own, so it reflects
   the currently open project without a manual click, just not instantly.
-  Everything else in the panel (segments, pending, etc.) still only
-  refreshes on the "Refresh" button and after every `Say`/`Build`, since
-  those read Theodore's own files, not Resolve's live state.
+  Everything else in the panel (Segments, `pending` in chat, etc.) is
+  read on demand when its quick action is clicked or typed, not
+  auto-refreshed in the background -- those read Theodore's own files,
+  not Resolve's live state, so there is nothing to poll for in the first
+  place.
 - Workflow Integration Plugins are **Windows and Mac OS X only** (per
   Blackmagic's own docs) -- there is no Linux path for this panel, even
   though the `theodore` CLI itself runs fine on Linux.
@@ -127,15 +140,15 @@ npm start
 ```
 
 This is the fastest way to catch a config typo or a `theodore` path
-problem: you'll see the real window, the real Ingest/Chat/Segments/Dupes/
-Say tabs, and (if something's wrong) the red error banner naming the fix,
-all without Resolve in the loop. `resolve-project-name` will read
-"(not connected)" here, always -- that's expected outside Resolve, not a
-bug. Try the Ingest tab on one real clip end-to-end (choose footage, type
-a project/subject, Run Theodore, watch the console fill in live), confirm
-the Segments tab shows the resulting analysis, then open the Chat tab and
-type an instruction -- it's a live `theodore chat` process, so the same
-Anthropic key from `theodore setup` is what it's using -- before moving on.
+problem: you'll see the real window and (if something's wrong) the red
+error banner naming the fix, all without Resolve in the loop.
+`resolve-project-name` will read "(not connected)" here, always -- that's
+expected outside Resolve, not a bug. Try footage on one real clip end to
+end (choose it, type a project/subject, **Ingest & Analyze**, watch the
+console fill in live), click **Segments** to confirm the resulting
+analysis shows up, then type an instruction into the chat box at the
+bottom -- it's a live `theodore chat` process, so the same Anthropic key
+from `theodore setup` is what it's using -- before moving on.
 
 **3. Get `WorkflowIntegration.node` from Resolve itself:**
 
@@ -206,23 +219,26 @@ no changes to the `theodore` Python package at all.
 
 ## Extending it
 
-The Ingest tab covers `theodore run` (the full per-subject pipeline, via
-a native footage picker so no path is ever typed); the Chat tab covers
-`theodore chat` (a running conversation instead of one instruction at a
-time); the Multicam tab covers `theodore multicam` (camera-angle grouping
-and external-audio sync recommendations); the rest of the tabs (Segments,
-Dupes, Gaps, Delivery, Find, Learn, Versions, Say/Pending) cover every
-other CLI command an editor reaches for repeatedly while cutting. Every
-quick-action tab
-follows the same shape: `bindRunButton()` in `js/renderer.js` builds an
-argv array and hands it to `window.theodore.run(...)`, which round-trips
-to `theodore_bridge.js`'s `runTheodore()` -- no new bridge code needed
-for a new command, just a button and an argv builder. A long-running
-one-shot command instead wants
-`window.theodore.runStreaming(args, onOutput, onDone)`, modeled on the
-Ingest tab's `initIngestTab()`; a REPL-shaped one wants
-`startChat`/`sendChat`/`onChatOutput`, modeled on the Chat tab's
-`initChatTab()`. Versions/Diff/Revert and Delivery/Peaks all share one
-output pane per tab, since they're closely related actions on the same
-underlying data; splitting that further is a UI call, not an
-architectural one.
+The footage row covers `theodore run` (the full per-subject pipeline, via
+a native picker so no path is ever typed, streamed live into the shared
+console); the chat box at the bottom covers `theodore chat` (a running
+conversation instead of one instruction at a time). Everything in between
+-- Timeline Status, Segments, Dupes, Gaps, Learn, Find -- is a **quick
+action**: a button in `#quick-actions` that builds an argv array and
+hands it to `window.theodore.run(...)` via `runQuickAction()` in
+`js/renderer.js`, printing the result into the same `#chat-log` every
+other action writes to. Adding one more CLI command as a quick action is
+just a new `<button class="action-btn" data-action="...">` plus, if its
+name doesn't match its CLI subcommand 1:1, one line in `initQuickActions`'s
+`labels` map -- no new bridge code needed. A long-running command instead
+wants `window.theodore.runStreaming(args, onOutput, onDone)`, modeled on
+`initIngestTab()`; a REPL-shaped one wants
+`startChat`/`sendChat`/`onChatOutput`, modeled on `initChat()`.
+
+Timeline-building surfaces (`theodore build`, `multicam`, versions/diff/
+revert, delivery/peaks) are deliberately not wired to a button right now
+-- building a new timeline from scratch isn't today's workflow, which is
+centered on analyzing and eventually trimming an editor's own already-
+synced timeline in place instead. The CLI commands themselves are
+untouched; re-adding a quick action for any of them is the same one-line
+change described above whenever that becomes the workflow again.

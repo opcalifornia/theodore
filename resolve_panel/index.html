@@ -21,125 +21,30 @@
     <div id="resolve-status">Resolve project: <span id="resolve-project-name">(not connected)</span></div>
   </header>
 
-  <nav id="tabs">
-    <button class="tab-btn active" data-tab="ingest">Ingest</button>
-    <button class="tab-btn" data-tab="multicam">Multicam</button>
-    <button class="tab-btn" data-tab="chat">Chat</button>
-    <button class="tab-btn" data-tab="segments">Segments</button>
-    <button class="tab-btn" data-tab="dupes">Dupes</button>
-    <button class="tab-btn" data-tab="gaps">Gaps</button>
-    <button class="tab-btn" data-tab="delivery">Delivery</button>
-    <button class="tab-btn" data-tab="find">Find</button>
-    <button class="tab-btn" data-tab="learn">Learn</button>
-    <button class="tab-btn" data-tab="versions">Versions</button>
-    <button class="tab-btn" data-tab="say">Say / Pending</button>
-  </nav>
-
-  <main>
-    <section id="tab-ingest" class="tab-panel active">
-      <p class="hint">Pick raw footage and Theodore runs the full pipeline -- ingest, transcribe, analyze,
-        markers, notes -- with no terminal needed. New project/subject names are registered automatically.</p>
-      <div id="ingest-form">
-        <div class="field-row">
-          <button id="pick-source-btn">Choose footage...</button>
-          <span id="source-path">(none chosen)</span>
-        </div>
-        <div class="field-row">
-          <label>Project <input id="ingest-project" type="text" placeholder="e.g. river-doc"></label>
-          <label>Subject <input id="ingest-subject" type="text" placeholder="e.g. haylee"></label>
-        </div>
-        <div class="field-row">
-          <label>Display name <input id="ingest-display-name" type="text" placeholder="optional, e.g. Haylee Torres"></label>
-          <label>Interviewer speaker id <input id="ingest-interviewer" type="text" placeholder="optional, e.g. 1"></label>
-        </div>
-        <button id="run-ingest-btn">Run Theodore</button>
-      </div>
-      <pre id="ingest-output" class="console"></pre>
+  <main id="single-pane">
+    <section id="ingest-row">
+      <button id="pick-source-btn">Choose footage...</button>
+      <span id="source-path">(none chosen)</span>
+      <input id="ingest-project" type="text" placeholder="project">
+      <input id="ingest-subject" type="text" placeholder="subject">
+      <button id="run-ingest-btn">Ingest &amp; Analyze</button>
     </section>
 
-    <section id="tab-multicam" class="tab-panel">
-      <p class="hint">Run after ingest, for a subject that has more than one camera angle and/or a separate lav or
-        boom mic recording. Groups synced camera angles and names the multicam clip to create; recommends which
-        camera file(s) to sync any external audio recording to. Theodore never touches Resolve's media or timeline
-        itself -- this prints exactly what to click.</p>
-      <button id="run-multicam-btn">Run theodore multicam</button>
-      <pre id="multicam-output" class="console"></pre>
+    <section id="quick-actions">
+      <button class="action-btn" data-action="timeline-status">Timeline Status</button>
+      <button class="action-btn" data-action="segments">Segments</button>
+      <button class="action-btn" data-action="dupes">Dupes</button>
+      <button class="action-btn" data-action="gaps">Gaps</button>
+      <button class="action-btn" data-action="learn">Learn</button>
+      <input id="find-input" type="text" placeholder="Find a moment...">
+      <button class="action-btn" data-action="find">Find</button>
     </section>
 
-    <section id="tab-chat" class="tab-panel">
-      <p class="hint">Talk to Theodore about this project's edit: queue moves, ask what's pending, or type
-        "build &lt;subject&gt;" to confirm it -- the same Claude-backed engine as Say/Pending, held in one running
-        conversation instead of one command at a time. Type "help" for the full list.</p>
-      <div id="chat-log" class="console chat-log"></div>
-      <div id="chat-row">
-        <input id="chat-input" type="text" placeholder='e.g. move haylee.q03 after marcus.q04'>
-        <button id="chat-send-btn">Send</button>
-      </div>
-    </section>
-
-    <section id="tab-segments" class="tab-panel">
-      <table id="segments-table">
-        <thead>
-          <tr><th>id</th><th>question</th><th>strength</th><th>best line</th><th>issues</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section id="tab-dupes" class="tab-panel">
-      <button id="run-dupes-btn">Run theodore dupes</button>
-      <pre id="dupes-output" class="console"></pre>
-    </section>
-
-    <section id="tab-gaps" class="tab-panel">
-      <button id="run-gaps-btn">Run theodore gaps</button>
-      <pre id="gaps-output" class="console"></pre>
-    </section>
-
-    <section id="tab-delivery" class="tab-panel">
-      <button id="run-delivery-btn">Run theodore delivery</button>
-      <button id="run-peaks-btn">Run theodore peaks</button>
-      <pre id="delivery-output" class="console"></pre>
-    </section>
-
-    <section id="tab-find" class="tab-panel">
-      <div id="find-row">
-        <input id="find-input" type="text" placeholder='e.g. someone talking about losing a parent'>
-        <label><input type="checkbox" id="find-scope-subject"> this subject only</label>
-        <button id="find-btn">Find</button>
-      </div>
-      <pre id="find-output" class="console"></pre>
-    </section>
-
-    <section id="tab-learn" class="tab-panel">
-      <button id="run-learn-btn">Run theodore learn</button>
-      <pre id="learn-output" class="console"></pre>
-    </section>
-
-    <section id="tab-versions" class="tab-panel">
-      <button id="run-versions-btn">List versions</button>
-      <div id="diff-row">
-        <input id="diff-a-input" type="text" placeholder="v001">
-        <input id="diff-b-input" type="text" placeholder="v002">
-        <button id="run-diff-btn">Diff</button>
-      </div>
-      <div id="revert-row">
-        <input id="revert-input" type="text" placeholder="v001">
-        <button id="run-revert-btn">Revert to...</button>
-      </div>
-      <pre id="versions-output" class="console"></pre>
-    </section>
-
-    <section id="tab-say" class="tab-panel">
-      <div id="say-row">
-        <input id="say-input" type="text" placeholder='e.g. move haylee.q03 after marcus.q04'>
-        <button id="say-btn">Say</button>
-      </div>
-      <h3>Pending queue</h3>
-      <ul id="pending-list"></ul>
-      <button id="build-btn">Build (theodore build)</button>
-      <pre id="say-output" class="console"></pre>
-    </section>
+    <div id="chat-log" class="console chat-log"></div>
+    <div id="chat-row">
+      <input id="chat-input" type="text" placeholder='Talk to Theodore -- e.g. "move haylee.q03 after marcus.q04", or use a button above'>
+      <button id="chat-send-btn">Send</button>
+    </div>
   </main>
 
   <script src="js/renderer.js"></script>
