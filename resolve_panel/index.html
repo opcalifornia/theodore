@@ -23,6 +23,7 @@
 
   <nav id="tabs">
     <button class="tab-btn active" data-tab="ingest">Ingest</button>
+    <button class="tab-btn" data-tab="multicam">Multicam</button>
     <button class="tab-btn" data-tab="chat">Chat</button>
     <button class="tab-btn" data-tab="segments">Segments</button>
     <button class="tab-btn" data-tab="dupes">Dupes</button>
@@ -54,6 +55,15 @@
         <button id="run-ingest-btn">Run Theodore</button>
       </div>
       <pre id="ingest-output" class="console"></pre>
+    </section>
+
+    <section id="tab-multicam" class="tab-panel">
+      <p class="hint">Run after ingest, for a subject that has more than one camera angle and/or a separate lav or
+        boom mic recording. Groups synced camera angles and names the multicam clip to create; recommends which
+        camera file(s) to sync any external audio recording to. Theodore never touches Resolve's media or timeline
+        itself -- this prints exactly what to click.</p>
+      <button id="run-multicam-btn">Run theodore multicam</button>
+      <pre id="multicam-output" class="console"></pre>
     </section>
 
     <section id="tab-chat" class="tab-panel">

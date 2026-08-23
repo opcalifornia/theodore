@@ -28,7 +28,7 @@ written and hoped about:
 - `npm install` succeeds and pulls a real, working Electron binary.
 - The app **actually launches** (verified under Xvfb with
   `--no-sandbox`) and **actually renders** -- a real screenshot of the
-  live window shows the topbar, all 10 tabs, and a segments table
+  live window shows the topbar, all 11 tabs, and a segments table
   correctly populated from real `analysis.json` fixture data, read
   through the real `contextBridge` -> `ipcMain` -> `theodore_bridge.js`
   path, no mocking.
@@ -203,9 +203,11 @@ no changes to the `theodore` Python package at all.
 The Ingest tab covers `theodore run` (the full per-subject pipeline, via
 a native footage picker so no path is ever typed); the Chat tab covers
 `theodore chat` (a running conversation instead of one instruction at a
-time); the rest of the tabs (Segments, Dupes, Gaps, Delivery, Find, Learn,
-Versions, Say/Pending) cover every other CLI command an editor reaches
-for repeatedly while cutting, except `multicam`. Every quick-action tab
+time); the Multicam tab covers `theodore multicam` (camera-angle grouping
+and external-audio sync recommendations); the rest of the tabs (Segments,
+Dupes, Gaps, Delivery, Find, Learn, Versions, Say/Pending) cover every
+other CLI command an editor reaches for repeatedly while cutting. Every
+quick-action tab
 follows the same shape: `bindRunButton()` in `js/renderer.js` builds an
 argv array and hands it to `window.theodore.run(...)`, which round-trips
 to `theodore_bridge.js`'s `runTheodore()` -- no new bridge code needed

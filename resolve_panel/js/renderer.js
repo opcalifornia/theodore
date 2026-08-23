@@ -294,6 +294,7 @@ async function init() {
     return [command, '--project', state.project, '--subject', state.subject];
   };
 
+  bindRunButton('run-multicam-btn', 'multicam-output', requireSubject('multicam'));
   bindRunButton('run-dupes-btn', 'dupes-output', requireSubject('dupes'));
   bindRunButton('run-gaps-btn', 'gaps-output', requireSubject('gaps'));
   bindRunButton('run-delivery-btn', 'delivery-output', requireSubject('delivery'));
