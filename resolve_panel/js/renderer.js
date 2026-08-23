@@ -176,12 +176,14 @@ function initQuickActions() {
 // so a newly-registered project shows up without a manual Refresh click.
 function initIngestTab() {
   let sourcePath = null;
+  let fromTimeline = false;
 
   el('pick-source-btn').addEventListener('click', async () => {
     try {
       const picked = await window.theodore.pickSource();
       if (picked) {
         sourcePath = picked;
+        fromTimeline = false;
         el('source-path').textContent = sourcePath;
       }
       clearError();
@@ -190,14 +192,27 @@ function initIngestTab() {
     }
   });
 
+  // Ingests straight from the currently-open Resolve timeline's audio
+  // tracks -- no re-browsing to a file Resolve already knows the location
+  // of. Mutually exclusive with "Choose footage...": whichever was clicked
+  // last is what Ingest & Analyze uses.
+  el('from-timeline-btn').addEventListener('click', () => {
+    sourcePath = null;
+    fromTimeline = true;
+    el('source-path').textContent = '(from current Resolve timeline)';
+    clearError();
+  });
+
   el('run-ingest-btn').addEventListener('click', () => {
     const project = el('ingest-project').value.trim();
     const subject = el('ingest-subject').value.trim();
 
-    if (!sourcePath) { showError('Choose footage first.'); return; }
+    if (!sourcePath && !fromTimeline) { showError('Choose footage, or click "Ingest from Timeline", first.'); return; }
     if (!project || !subject) { showError('Project and subject are both required.'); return; }
 
-    const args = ['run', sourcePath, '--project', project, '--subject', subject];
+    const args = fromTimeline
+      ? ['run', '--from-timeline', '--project', project, '--subject', subject]
+      : ['run', sourcePath, '--project', project, '--subject', subject];
 
     clearError();
     appendConsole(`\n> [Ingest & Analyze: ${project} / ${subject}]\n`);

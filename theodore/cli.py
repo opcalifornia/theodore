@@ -200,11 +200,15 @@ def setup():
 
 
 @cli.command()
-@click.argument("source", type=click.Path(exists=True, path_type=Path))
+@click.argument("source", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("--project", required=True)
 @click.option("--subject", required=True, help="Subject id for this footage (e.g. 'haylee'). Registered automatically if new.")
 @click.option("--display-name", default=None, help="Human display name for a newly registered subject (default: the subject id).")
-def ingest(source: Path, project: str, subject: str, display_name: Optional[str]):
+@click.option("--from-timeline", is_flag=True,
+              help="Ingest every media file referenced by the CURRENTLY OPEN Resolve timeline, instead of "
+                   "a source path -- for footage you've already imported and synced in Resolve, so you "
+                   "never have to re-browse to a file Resolve already knows the location of.")
+def ingest(source: Optional[Path], project: str, subject: str, display_name: Optional[str], from_timeline: bool):
     """Ingest a video file, audio file, or directory of files for one subject."""
     project_dir, reg = _load_registry(project)
     _setup_logging(project_dir)
@@ -214,9 +218,28 @@ def ingest(source: Path, project: str, subject: str, display_name: Optional[str]
         raise click.ClickException(str(exc)) from exc
     subj_dir = registry.subject_dir(project_dir, subject)
 
-    files = _media_files(source)
-    if not files:
-        raise click.ClickException(f"No media files found at {source}")
+    if from_timeline:
+        if source:
+            raise click.ClickException("Pass either a source path or --from-timeline, not both.")
+        handles = _connect_or_die()
+        paths = assembly_builder.list_timeline_audio_paths(handles.timeline)
+        if not paths:
+            raise click.ClickException(
+                f"No audio-track media found on the current Resolve timeline ('{handles.timeline.GetName()}'). "
+                "Theodore ingests from the timeline's AUDIO tracks only (the synced lav/boom mic), not the "
+                "camera video tracks -- put the external audio on its own track (Resolve's "
+                "Auto Sync Audio -> Append Tracks does this) and try again."
+            )
+        click.echo(f"Ingesting {len(paths)} audio file(s) found on the current Resolve timeline:")
+        for p in paths:
+            click.echo(f"  - {Path(p).name}")
+        files = [Path(p) for p in paths]
+    else:
+        if not source:
+            raise click.ClickException("Provide a source path, or pass --from-timeline.")
+        files = _media_files(source)
+        if not files:
+            raise click.ClickException(f"No media files found at {source}")
 
     succeeded: list[Path] = []
     failed: list[tuple[Path, str]] = []
@@ -1008,7 +1031,7 @@ def quotes(project: str, subject: str):
 
 
 @cli.command()
-@click.argument("source", type=click.Path(exists=True, path_type=Path))
+@click.argument("source", required=False, type=click.Path(exists=True, path_type=Path))
 @click.option("--project", required=True)
 @click.option("--subject", required=True)
 @click.option("--display-name", default=None)
@@ -1018,11 +1041,19 @@ def quotes(project: str, subject: str):
 @click.option("--allow-cost-over", is_flag=True)
 @click.option("--dry-run", is_flag=True)
 @click.option("--overwrite", is_flag=True)
+@click.option("--from-timeline", is_flag=True,
+              help="Ingest every media file referenced by the CURRENTLY OPEN Resolve timeline, instead of "
+                   "a source path -- for footage you've already imported and synced in Resolve, so you "
+                   "never have to re-browse to a file Resolve already knows the location of.")
 @click.pass_context
-def run(ctx, source, project, subject, display_name, interviewer, model_tier, addressing, allow_cost_over, dry_run, overwrite):
+def run(ctx, source, project, subject, display_name, interviewer, model_tier, addressing, allow_cost_over, dry_run, overwrite, from_timeline):
     """Full pipeline for one subject: ingest -> transcribe -> analyze -> markers -> notes."""
+    if not from_timeline and not source:
+        raise click.ClickException("Provide a source path, or pass --from-timeline.")
+    if from_timeline and source:
+        raise click.ClickException("Pass either a source path or --from-timeline, not both.")
     start = time.monotonic()
-    ctx.invoke(ingest, source=source, project=project, subject=subject, display_name=display_name)
+    ctx.invoke(ingest, source=source, project=project, subject=subject, display_name=display_name, from_timeline=from_timeline)
     ctx.invoke(transcribe, project=project, subject=subject, interviewer=interviewer, force=False)
     ctx.invoke(analyze, project=project, subject=subject, model_tier=model_tier, addressing=addressing, allow_cost_over=allow_cost_over)
     ctx.invoke(markers, project=project, subject=subject, dry_run=dry_run, overwrite=overwrite)

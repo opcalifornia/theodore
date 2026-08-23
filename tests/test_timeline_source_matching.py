@@ -109,3 +109,99 @@ def test_format_timeline_matches_lists_each_match():
     assert "DJI_17.WAV" in text
     assert "1000" in text
     assert "1500" in text
+
+
+# --------------------------------------------------------------------------
+# list_timeline_media_paths -- ingesting directly from what's already on
+# the timeline, instead of re-browsing to files Resolve already knows.
+# --------------------------------------------------------------------------
+
+def test_lists_every_distinct_path_on_the_timeline():
+    timeline = FakeAssemblyTimeline("Edit")
+    _add_clip(timeline, "video", 1, FakeMediaPoolItem(path="/media/cam_a.mov"), start=0, duration=100)
+    _add_clip(timeline, "audio", 1, FakeMediaPoolItem(path="/media/DJI_17.WAV"), start=0, duration=100)
+
+    paths = builder.list_timeline_media_paths(timeline)
+
+    assert paths == ["/media/DJI_17.WAV", "/media/cam_a.mov"]
+
+
+def test_list_timeline_media_paths_deduplicates_a_clip_used_twice():
+    timeline = FakeAssemblyTimeline("Edit")
+    clip = FakeMediaPoolItem(path="/media/haylee.mov")
+    _add_clip(timeline, "video", 1, clip, start=0, duration=100)
+    _add_clip(timeline, "video", 1, clip, start=500, duration=100)
+
+    paths = builder.list_timeline_media_paths(timeline)
+
+    assert paths == ["/media/haylee.mov"]
+
+
+def test_list_timeline_media_paths_skips_clips_with_no_resolvable_path():
+    timeline = FakeAssemblyTimeline("Edit")
+    # A compound/multicam clip commonly exposes no single "File Path".
+    _add_clip(timeline, "video", 1, FakeMediaPoolItem(path="", expose_properties=False), start=0, duration=100)
+
+    paths = builder.list_timeline_media_paths(timeline)
+
+    assert paths == []
+
+
+def test_list_timeline_media_paths_empty_timeline_returns_empty_list():
+    timeline = FakeAssemblyTimeline("Edit")
+    assert builder.list_timeline_media_paths(timeline) == []
+
+
+def test_list_timeline_media_paths_checks_multiple_audio_tracks():
+    timeline = FakeAssemblyTimeline("Edit")
+    timeline.tracks = {"video": {1: []}, "audio": {1: [], 2: []}}
+    _add_clip(timeline, "audio", 1, FakeMediaPoolItem(path="/media/boom.wav"), start=0, duration=100)
+    _add_clip(timeline, "audio", 2, FakeMediaPoolItem(path="/media/lav.wav"), start=0, duration=100)
+
+    paths = builder.list_timeline_media_paths(timeline)
+
+    assert paths == ["/media/boom.wav", "/media/lav.wav"]
+
+
+# --------------------------------------------------------------------------
+# list_timeline_audio_paths -- what `ingest --from-timeline` actually uses:
+# audio tracks only, so a RED/ARRI camera original never reaches ffprobe.
+# --------------------------------------------------------------------------
+
+def test_list_timeline_audio_paths_excludes_video_tracks():
+    timeline = FakeAssemblyTimeline("Edit")
+    _add_clip(timeline, "video", 1, FakeMediaPoolItem(path="/media/cam_a.r3d"), start=0, duration=100)
+    _add_clip(timeline, "audio", 1, FakeMediaPoolItem(path="/media/DJI_17.WAV"), start=0, duration=100)
+
+    paths = builder.list_timeline_audio_paths(timeline)
+
+    assert paths == ["/media/DJI_17.WAV"]
+
+
+def test_list_timeline_audio_paths_checks_every_audio_track():
+    timeline = FakeAssemblyTimeline("Edit")
+    timeline.tracks = {"video": {1: []}, "audio": {1: [], 2: []}}
+    _add_clip(timeline, "audio", 1, FakeMediaPoolItem(path="/media/boom.wav"), start=0, duration=100)
+    _add_clip(timeline, "audio", 2, FakeMediaPoolItem(path="/media/lav.wav"), start=0, duration=100)
+
+    paths = builder.list_timeline_audio_paths(timeline)
+
+    assert paths == ["/media/boom.wav", "/media/lav.wav"]
+
+
+def test_list_timeline_audio_paths_deduplicates_and_sorts():
+    timeline = FakeAssemblyTimeline("Edit")
+    clip = FakeMediaPoolItem(path="/media/lav.wav")
+    _add_clip(timeline, "audio", 1, clip, start=0, duration=100)
+    _add_clip(timeline, "audio", 1, clip, start=500, duration=100)
+
+    paths = builder.list_timeline_audio_paths(timeline)
+
+    assert paths == ["/media/lav.wav"]
+
+
+def test_list_timeline_audio_paths_no_audio_tracks_returns_empty():
+    timeline = FakeAssemblyTimeline("Edit")
+    _add_clip(timeline, "video", 1, FakeMediaPoolItem(path="/media/cam_a.mov"), start=0, duration=100)
+
+    assert builder.list_timeline_audio_paths(timeline) == []

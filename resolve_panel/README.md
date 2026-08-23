@@ -6,14 +6,16 @@ covering the entire loop -- picking raw footage and running the full
 ingest/transcribe/analyze pipeline, and holding a live Claude-backed
 conversation about the edit -- with no terminal involved at any point.
 
-One screen, not a tab-per-command dashboard: a footage picker, a row of
-one-click actions (Timeline Status, Segments, Dupes, Gaps, Learn, Find),
-and a single scrolling console/chat below them that every action's output
-lands in -- closer to talking to Claude directly than hunting through a
-UI. Building a new timeline from scratch (`theodore build`, versions/
-diff/revert) isn't wired to a button right now, since that isn't the
-current workflow this panel is built around; the CLI commands themselves
-are untouched underneath and easy to re-surface later.
+One screen, not a tab-per-command dashboard: a footage picker (a native
+file dialog, or **Ingest from Timeline** to skip picking altogether and
+ingest straight off the currently-open Resolve timeline's audio tracks),
+a row of one-click actions (Timeline Status, Segments, Dupes, Gaps, Learn,
+Find), and a single scrolling console/chat below them that every action's
+output lands in -- closer to talking to Claude directly than hunting
+through a UI. Building a new timeline from scratch (`theodore build`,
+versions/diff/revert) isn't wired to a button right now, since that isn't
+the current workflow this panel is built around; the CLI commands
+themselves are untouched underneath and easy to re-surface later.
 
 **On "embedded panel" vs. a separate window:** Resolve's Workflow
 Integration SDK gives a third-party plugin its own top-level Electron

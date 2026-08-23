@@ -1483,35 +1483,83 @@ def match_timeline_to_sources(timeline, known_source_paths: list[str]) -> list[T
     if not known:
         return matches
 
+    for track_type, track_index, item in _iter_timeline_items(timeline):
+        path = _item_file_path(_call(item, "GetMediaPoolItem") or item)
+        matched_path = next((k for k in known if _same_file(path, k)), None)
+        if matched_path is None:
+            continue
+        start = _call(item, "GetStart")
+        end = _call(item, "GetEnd")
+        if start is None or end is None:
+            logger.warning(
+                "Matched %r on %s track %d but couldn't read its timeline position -- skipping",
+                matched_path, track_type, track_index,
+            )
+            continue
+        matches.append(TimelineSourceMatch(
+            source_path=matched_path, track_type=track_type, track_index=track_index,
+            clip_name=_item_name(item) or Path(matched_path).name,
+            timeline_start_frame=int(start), timeline_end_frame=int(end),
+        ))
+
+    matches.sort(key=lambda m: m.timeline_start_frame)
+    return matches
+
+
+def _iter_timeline_items(timeline):
+    """Every TimelineItem on `timeline`, across video track 1 and every
+    audio track -- the walk match_timeline_to_sources() and
+    list_timeline_media_paths() both need, factored out so there is exactly
+    one place that decides which tracks count."""
     video_count = _call(timeline, "GetTrackCount", VIDEO_TRACK) or 0
     audio_count = _call(timeline, "GetTrackCount", AUDIO_TRACK) or 0
-
     for track_type, count in ((VIDEO_TRACK, video_count), (AUDIO_TRACK, audio_count)):
         for track_index in range(1, int(count) + 1):
             items = _read_track_items(timeline, track_type, track_index)
             if not items:
                 continue
             for item in items:
-                path = _item_file_path(_call(item, "GetMediaPoolItem") or item)
-                matched_path = next((k for k in known if _same_file(path, k)), None)
-                if matched_path is None:
-                    continue
-                start = _call(item, "GetStart")
-                end = _call(item, "GetEnd")
-                if start is None or end is None:
-                    logger.warning(
-                        "Matched %r on %s track %d but couldn't read its timeline position -- skipping",
-                        matched_path, track_type, track_index,
-                    )
-                    continue
-                matches.append(TimelineSourceMatch(
-                    source_path=matched_path, track_type=track_type, track_index=track_index,
-                    clip_name=_item_name(item) or Path(matched_path).name,
-                    timeline_start_frame=int(start), timeline_end_frame=int(end),
-                ))
+                yield track_type, track_index, item
 
-    matches.sort(key=lambda m: m.timeline_start_frame)
-    return matches
+
+def list_timeline_media_paths(timeline) -> list[str]:
+    """Every distinct real source file path referenced anywhere on
+    `timeline` -- read-only. Lets the editor's existing, already-imported
+    timeline BE the source for `theodore ingest`/`theodore run`, instead of
+    the editor re-browsing to files Resolve already knows the location of.
+
+    A clip whose path can't be determined is skipped, not an error --
+    generated/compound clips (a multicam clip, a Fusion title) commonly
+    have no single "File Path" of their own.
+    """
+    paths: set[str] = set()
+    for _track_type, _track_index, item in _iter_timeline_items(timeline):
+        path = _item_file_path(_call(item, "GetMediaPoolItem") or item)
+        if path:
+            paths.add(path)
+    return sorted(paths)
+
+
+def list_timeline_audio_paths(timeline) -> list[str]:
+    """Every distinct real source file path on `timeline`'s AUDIO tracks
+    only -- read-only. What `theodore ingest --from-timeline` actually
+    hands to the ingest/transcribe pipeline.
+
+    Deliberately excludes video tracks: a camera original doesn't need to
+    be probed or transcribed when a dedicated external mic (lav/boom),
+    already synced onto its own audio track, is the transcription source
+    of truth -- and skipping video here also means never handing ffprobe a
+    RED .R3D file, whose scrambled JPEG2000 headers it cannot reliably
+    decode (a real, confirmed limitation, not a Theodore bug).
+    """
+    paths: set[str] = set()
+    for track_type, _track_index, item in _iter_timeline_items(timeline):
+        if track_type != AUDIO_TRACK:
+            continue
+        path = _item_file_path(_call(item, "GetMediaPoolItem") or item)
+        if path:
+            paths.add(path)
+    return sorted(paths)
 
 
 def format_timeline_matches(matches: list[TimelineSourceMatch]) -> str:

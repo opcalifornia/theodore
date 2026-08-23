@@ -274,12 +274,18 @@ theodore setup   # interactive .env / API key setup -- run this first
 
 # v1 -- ingest through markers/notes
 theodore ingest <file|dir> --project <name> --subject <id> [--display-name <name>]
+theodore ingest --from-timeline --project <name> --subject <id>   # ingest the CURRENTLY OPEN Resolve timeline's
+                                                       # audio tracks instead of a source path -- no re-picking a
+                                                       # file Resolve already has open; camera video tracks are
+                                                       # deliberately skipped (nothing to transcribe there, and it
+                                                       # sidesteps R3D/ffprobe entirely)
 theodore transcribe --project <name> --subject <id> [--interviewer <speaker_id>] [--force]
 theodore analyze --project <name> --subject <id> [--model-tier economy|standard|premium] [--addressing sequential|canonical] [--allow-cost-over]
 theodore markers --project <name> --subject <id> [--dry-run] [--overwrite]
 theodore notes --project <name> --subject <id>
 theodore ids --project <name> --subject <id>          # immutable id -> question mapping
 theodore run <file> --project <name> --subject <id>    # full pipeline, one command
+theodore run --from-timeline --project <name> --subject <id>   # full pipeline, sourced from the open Resolve timeline
 theodore status --project <name> [--subject <id>]      # which stages are complete/cached
 
 # v1.5 -- rough assembly
