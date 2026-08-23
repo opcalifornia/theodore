@@ -377,15 +377,25 @@ async function init() {
     }
   });
 
-  // Each independent: Resolve not being connected must never prevent the
-  // project list (which needs only the config file, not Resolve at all)
-  // from loading, and vice versa.
-  try {
-    const resolveProject = await window.theodore.currentResolveProjectName();
-    el('resolve-project-name').textContent = resolveProject || '(not connected)';
-  } catch (err) {
-    el('resolve-project-name').textContent = '(not connected)';
+  // Resolve exposes no "project changed" event at all (its Workflow
+  // Integration SDK only has RenderStart/RenderStop/ResolveQuit) -- there is
+  // no way for the panel to be TOLD when the editor opens or switches
+  // projects. Polling on an interval is the only way to reflect that
+  // without a manual Refresh click for every check; not live, but not
+  // stale for more than a few seconds either. Independent of the project
+  // list load below (which needs only the config file, not Resolve at all)
+  // so one being unavailable never blocks the other.
+  const RESOLVE_POLL_INTERVAL_MS = 5000;
+  async function pollResolveStatus() {
+    try {
+      const resolveProject = await window.theodore.currentResolveProjectName();
+      el('resolve-project-name').textContent = resolveProject || '(not connected)';
+    } catch (err) {
+      el('resolve-project-name').textContent = '(not connected)';
+    }
   }
+  await pollResolveStatus();
+  setInterval(pollResolveStatus, RESOLVE_POLL_INTERVAL_MS);
 
   await safely(refreshProjects);
 }

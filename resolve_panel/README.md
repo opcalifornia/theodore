@@ -84,9 +84,15 @@ machine:**
 
 **Real, permanent limitations (not bugs, not open questions):**
 - No live "project changed" / "timeline changed" event exists in this SDK
-  at all (only `RenderStart`, `RenderStop`, `ResolveQuit` callbacks) -- the
-  panel is refresh-driven by design (the "Refresh" button, and after every
-  `Say`/`Build`), not push-updated.
+  at all (only `RenderStart`, `RenderStop`, `ResolveQuit` callbacks), and
+  that's true for every third-party plugin, not just this one -- there is
+  no way to be *told* Resolve's state changed. The `resolve-project-name`
+  indicator works around this the only way possible: it polls
+  `currentResolveProjectName` every 5 seconds on its own, so it reflects
+  the currently open project without a manual click, just not instantly.
+  Everything else in the panel (segments, pending, etc.) still only
+  refreshes on the "Refresh" button and after every `Say`/`Build`, since
+  those read Theodore's own files, not Resolve's live state.
 - Workflow Integration Plugins are **Windows and Mac OS X only** (per
   Blackmagic's own docs) -- there is no Linux path for this panel, even
   though the `theodore` CLI itself runs fine on Linux.
