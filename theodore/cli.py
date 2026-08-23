@@ -1757,9 +1757,27 @@ def chat(project: str):
     click.echo(f"Theodore chat -- project '{project}', {len(subjects_segments)} subject(s) loaded.")
     click.echo("Type an instruction, or `help` for meta-commands. Ctrl-D to exit.\n")
 
+    # click.prompt() always echoes "theodore> " to stdout before reading,
+    # which is right for a human watching a real terminal cursor but pure
+    # noise piped into anything else -- the Resolve panel's chat box reads
+    # this same stream and would otherwise show a stray "theodore>" line
+    # inside what's supposed to read as a conversation. Skip it whenever
+    # stdin isn't an actual terminal.
+    interactive = sys.stdin.isatty()
+    if not interactive:
+        # Python fully block-buffers stdout once it isn't a tty, so without
+        # this a reply sits in the buffer until enough output piles up to
+        # flush it -- click.prompt()'s own prompt-printing used to force
+        # that flush as a side effect every loop iteration; reading via
+        # input() instead (above) doesn't, so a piped reader (the panel)
+        # would otherwise see nothing until the process eventually exits.
+        sys.stdout.reconfigure(line_buffering=True)
     while True:
         try:
-            line = click.prompt("theodore", prompt_suffix="> ")
+            if interactive:
+                line = click.prompt("theodore", prompt_suffix="> ")
+            else:
+                line = input()
         except (EOFError, click.exceptions.Abort):
             click.echo()
             break

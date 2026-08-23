@@ -75,18 +75,37 @@ async function refreshSubjects() {
   if (state.subject) select.value = state.subject;
 }
 
-function escapeHTML(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
+// Every entry in this one shared console is its own labeled block, never a
+// raw text blob -- "you", "Theodore", and a tool's own output are visually
+// distinct, closer to reading back a real conversation than scrolling a
+// terminal. `kind` picks the styling (see panel.css: msg-user/msg-theodore/
+// msg-action/msg-system); action output is set via textContent throughout,
+// so nothing here ever interprets a CLI's own output as markup.
+function startBlock(kind, label) {
+  const log = el('chat-log');
+  const wrap = document.createElement('div');
+  wrap.className = `msg msg-${kind}`;
+  if (label) {
+    const head = document.createElement('div');
+    head.className = 'msg-label';
+    head.textContent = label;
+    wrap.appendChild(head);
+  }
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+  wrap.appendChild(body);
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return body;
 }
 
-// Every entry in this one shared console is appended, never replaces --
-// the whole point is a running record, like scrolling back through a chat.
-function appendConsole(text) {
-  const log = el('chat-log');
-  log.textContent += text;
-  log.scrollTop = log.scrollHeight;
+function appendToBody(body, text) {
+  body.textContent += text;
+  el('chat-log').scrollTop = el('chat-log').scrollHeight;
+}
+
+function addMessage(kind, label, text) {
+  appendToBody(startBlock(kind, label), text);
 }
 
 function formatRunResult(result) {
@@ -117,13 +136,13 @@ function formatSegments(analysis) {
 // have their own handlers below since they don't fit this exact shape
 // (Segments reads a file directly; Find needs the query text).
 async function runQuickAction(label, args) {
-  appendConsole(`\n> [${label}]\n`);
+  const body = startBlock('action', label);
   try {
     const result = await window.theodore.run(args);
-    appendConsole(formatRunResult(result) + '\n');
+    appendToBody(body, formatRunResult(result));
     clearError();
   } catch (err) {
-    appendConsole('(command did not run -- see error above)\n');
+    appendToBody(body, '(command did not run -- see error above)');
     showError(err);
   }
 }
@@ -144,10 +163,10 @@ function initQuickActions() {
 
     if (action === 'segments') {
       if (!state.project || !state.subject) { showError('Pick a project and subject first.'); return; }
-      appendConsole('\n> [Segments]\n');
+      const body = startBlock('action', 'Segments');
       try {
         const analysis = await window.theodore.readAnalysis(state.project, state.subject);
-        appendConsole(formatSegments(analysis) + '\n');
+        appendToBody(body, formatSegments(analysis));
         clearError();
       } catch (err) {
         showError(err);
@@ -215,16 +234,16 @@ function initIngestTab() {
       : ['run', sourcePath, '--project', project, '--subject', subject];
 
     clearError();
-    appendConsole(`\n> [Ingest & Analyze: ${project} / ${subject}]\n`);
+    const body = startBlock('action', `Ingest & Analyze: ${project} / ${subject}`);
     el('run-ingest-btn').disabled = true;
 
     window.theodore.runStreaming(
       args,
-      (chunk) => appendConsole(chunk.text),
+      (chunk) => appendToBody(body, chunk.text),
       async (result) => {
         el('run-ingest-btn').disabled = false;
         if (!result.ok) {
-          appendConsole(`\n(exit code ${result.code}${result.error ? ': ' + result.error : ''})\n`);
+          appendToBody(body, `\n(exit code ${result.code}${result.error ? ': ' + result.error : ''})`);
         }
         // The run may have registered a brand-new project/subject --
         // reload the picker and land on exactly what was just built.
@@ -247,19 +266,46 @@ function initIngestTab() {
 // appended locally before sending -- otherwise only Theodore's replies
 // would ever appear.
 let chatProject = null;
+let currentReplyBody = null;
+// Theodore's replies stream in as raw stdout chunks over one long-lived
+// pipe, with no per-line framing -- there is no event marking "a reply
+// finished", only "more text arrived". A new block can't just be opened
+// the instant a line is sent: the PREVIOUS reply (e.g. the startup
+// banner) may still be mid-flight, and switching blocks early would
+// silently orphan its tail end into whatever block came next. Instead
+// this flag defers opening the next block until the first chunk actually
+// arrives after sending, so a still-streaming previous reply keeps
+// landing where it started.
+let awaitingNewReplyBlock = false;
 
+// No block is pre-created for the session-start banner: it doesn't arrive
+// until after the child process spawns, and creating one eagerly would
+// plant it in the DOM ahead of the user's own message, which sends
+// immediately afterward in the same synchronous call -- reading as a
+// reply that showed up before the question that prompted it. Both the
+// banner and every later reply instead go through the same lazy path:
+// awaitingNewReplyBlock says a block is owed, and onChatOutput only
+// creates it once the first byte actually arrives, so DOM order always
+// matches chronological order.
 function ensureChatSession() {
   if (!state.project || chatProject === state.project) return;
   chatProject = state.project;
-  appendConsole(`\n----- switching chat to project "${state.project}" -----\n`);
+  addMessage('system', null, `switched to project "${state.project}"`);
   window.theodore.startChat(state.project);
 }
 
 function initChat() {
-  window.theodore.onChatOutput((chunk) => appendConsole(chunk.text));
+  window.theodore.onChatOutput((chunk) => {
+    if (!currentReplyBody || awaitingNewReplyBlock) {
+      currentReplyBody = startBlock('theodore', 'Theodore');
+      awaitingNewReplyBlock = false;
+    }
+    appendToBody(currentReplyBody, chunk.text);
+  });
   window.theodore.onChatExit((info) => {
-    appendConsole(`\n(chat session ended${info.error ? ': ' + info.error : ''})\n`);
+    addMessage('system', null, `chat session ended${info.error ? ': ' + info.error : ''}`);
     chatProject = null;
+    currentReplyBody = null;
   });
 
   const send = () => {
@@ -268,7 +314,8 @@ function initChat() {
     if (!line) return;
     if (!state.project) { showError('Pick a project first.'); return; }
     ensureChatSession();
-    appendConsole(`\n> ${line}\n`);
+    addMessage('user', 'You', line);
+    awaitingNewReplyBlock = true;
     window.theodore.sendChat(line);
     input.value = '';
   };
@@ -300,11 +347,14 @@ async function init() {
   // so one being unavailable never blocks the other.
   const RESOLVE_POLL_INTERVAL_MS = 5000;
   async function pollResolveStatus() {
+    const status = el('resolve-status');
     try {
       const resolveProject = await window.theodore.currentResolveProjectName();
       el('resolve-project-name').textContent = resolveProject || '(not connected)';
+      status.classList.toggle('connected', Boolean(resolveProject));
     } catch (err) {
       el('resolve-project-name').textContent = '(not connected)';
+      status.classList.remove('connected');
     }
   }
   await pollResolveStatus();

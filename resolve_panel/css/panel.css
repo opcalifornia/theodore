@@ -1,19 +1,39 @@
+:root {
+  --bg: #16161b;
+  --bg-elevated: #1d1d24;
+  --bg-input: #26262f;
+  --border: #302f3a;
+  --text: #e9e9ee;
+  --text-dim: #96959f;
+  --text-faint: #6b6a75;
+  --accent: #dc9e52;
+  --accent-soft: #3a2f22;
+  --accent-cool: #57b6b0;
+  --accent-cool-soft: #1c3230;
+  --danger-bg: #4a1f24;
+  --danger-text: #ffb4bb;
+  --danger-border: #7a2a2a;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--sans);
   font-size: 13px;
-  color: #ddd;
-  background: #1e1e1e;
+  color: var(--text);
+  background: var(--bg);
 }
 
 #error-banner {
-  background: #5c1f1f;
-  color: #ffd7d7;
+  background: var(--danger-bg);
+  color: var(--danger-text);
   padding: 10px 14px;
-  border-bottom: 1px solid #7a2a2a;
+  border-bottom: 1px solid var(--danger-border);
   white-space: pre-wrap;
+  font-size: 12.5px;
 }
 #error-banner.hidden { display: none; }
 
@@ -21,32 +41,66 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: #2a2a2a;
-  border-bottom: 1px solid #3a3a3a;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
 }
 
-#picker label { margin-right: 12px; }
+#picker { display: flex; align-items: center; }
+#picker label {
+  margin-right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
 select, input, button {
-  background: #333;
-  color: #ddd;
-  border: 1px solid #4a4a4a;
-  border-radius: 3px;
-  padding: 4px 8px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
   font-size: 13px;
+  font-family: var(--sans);
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-button { cursor: pointer; }
-button:hover { background: #3d3d3d; }
-button:disabled { opacity: 0.5; cursor: default; }
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--accent-cool);
+}
 
-#resolve-status { color: #999; }
+button { cursor: pointer; font-weight: 500; }
+button:hover { background: #303039; border-color: #3d3d49; }
+button:active { background: #292930; }
+button:disabled { opacity: 0.45; cursor: default; }
+
+#resolve-status {
+  color: var(--text-faint);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#resolve-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+#resolve-status.connected { color: var(--text-dim); }
+#resolve-status.connected::before { background: var(--accent-cool); }
+#resolve-project-name { color: var(--text); font-weight: 500; }
 
 #single-pane {
-  padding: 12px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  height: calc(100vh - 45px);
+  gap: 12px;
+  height: calc(100vh - 47px);
 }
 
 #ingest-row, #quick-actions {
@@ -56,28 +110,75 @@ button:disabled { opacity: 0.5; cursor: default; }
   flex-wrap: wrap;
 }
 
-#ingest-row { padding-bottom: 10px; border-bottom: 1px solid #2e2e2e; }
-#source-path { color: #999; word-break: break-all; flex-basis: 100%; }
+#ingest-row { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+#source-path { color: var(--text-faint); word-break: break-all; flex-basis: 100%; font-size: 12px; }
 #ingest-project, #ingest-subject { width: 140px; }
+#run-ingest-btn {
+  background: var(--accent-soft);
+  border-color: #5a4326;
+  color: var(--accent);
+  font-weight: 600;
+  margin-left: auto;
+}
+#run-ingest-btn:hover { background: #4a3a26; }
 
-#quick-actions { padding-bottom: 10px; border-bottom: 1px solid #2e2e2e; }
-.action-btn { background: #2d3f4f; }
-.action-btn:hover { background: #35495c; }
+#quick-actions { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.action-btn {
+  background: var(--accent-cool-soft);
+  border-color: #2a4a47;
+  color: var(--accent-cool);
+}
+.action-btn:hover { background: #24413e; }
 #find-input { flex: 1; min-width: 120px; }
 
 .console {
-  background: #141414;
-  border: 1px solid #333;
-  border-radius: 3px;
-  padding: 8px;
-  white-space: pre-wrap;
-  margin-top: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 6px;
 }
 
 .chat-log {
   flex: 1;
   overflow-y: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  display: flex;
+  flex-direction: column;
 }
+
+/* Each entry in the shared console is one labeled block -- "you", "Theodore",
+   and a tool's own output read as distinct voices, not one undifferentiated
+   terminal dump. */
+.msg { padding: 7px 12px; margin: 3px 0; border-radius: 0 8px 8px 0; border-left: 3px solid transparent; }
+.msg-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.msg-body { white-space: pre-wrap; line-height: 1.5; word-wrap: break-word; }
+
+.msg-user { border-left-color: #45454f; }
+.msg-user .msg-label { color: var(--text-faint); }
+.msg-user .msg-body { color: var(--text-dim); }
+
+.msg-theodore { border-left-color: var(--accent); background: rgba(220, 158, 82, 0.06); }
+.msg-theodore .msg-label { color: var(--accent); }
+.msg-theodore .msg-body { color: var(--text); }
+
+.msg-action { border-left-color: var(--accent-cool); }
+.msg-action .msg-label { color: var(--accent-cool); }
+.msg-action .msg-body { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+.msg-system { border-left-color: transparent; padding-left: 12px; }
+.msg-system .msg-body { color: var(--text-faint); font-size: 12px; font-style: italic; }
+
 #chat-row { display: flex; gap: 8px; }
 #chat-input { flex: 1; }
+#chat-send-btn {
+  background: var(--accent-soft);
+  border-color: #5a4326;
+  color: var(--accent);
+  font-weight: 600;
+}
+#chat-send-btn:hover { background: #4a3a26; }
