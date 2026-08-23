@@ -8,7 +8,7 @@
 // to identify this plugin to Resolve.
 const PLUGIN_ID = 'com.theodore.editor.panel';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
 const bridge = require('./theodore_bridge');
@@ -78,6 +78,41 @@ ipcMain.handle('theodore:readJSONFile', (_e, project, subject, filename) =>
   bridge.readJSONFile(undefined, project, subject, filename));
 ipcMain.handle('theodore:readPending', (_e, project) => bridge.readPending(undefined, project));
 ipcMain.handle('theodore:run', (_e, args) => bridge.runTheodore(undefined, args));
+
+// Native "choose a file or a folder of footage" picker so the editor never
+// has to know or type a filesystem path -- the single biggest source of the
+// "back and forth to terminal" friction this Ingest tab exists to remove.
+// Combining openFile + openDirectory in one dialog is Mac-only behavior in
+// Electron; that's fine, DaVinci Resolve's Workflow Integration plugins only
+// run on Mac and Windows, and this panel is developed against Mac.
+ipcMain.handle('theodore:pickSource', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose footage to ingest',
+    properties: ['openFile', 'openDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+// `theodore run` (ingest -> transcribe -> analyze -> markers -> notes) can
+// take minutes, so it's streamed instead of using theodore:run's buffered
+// invoke/resolve: `event.sender.send` pushes each output chunk to the
+// renderer as it arrives, with a final 'theodore:run-done' once the process
+// exits. Fire-and-forget (`ipcMain.on`, not `.handle`) because the caller
+// isn't waiting on a single return value -- it's listening for a stream.
+ipcMain.on('theodore:runStreaming', (event, requestId, args) => {
+  bridge.spawnTheodore(
+    undefined,
+    args,
+    (chunk) => {
+      if (event.sender.isDestroyed()) return;
+      event.sender.send('theodore:run-output', requestId, chunk);
+    },
+  ).then((result) => {
+    if (event.sender.isDestroyed()) return;
+    event.sender.send('theodore:run-done', requestId, result);
+  });
+});
 
 ipcMain.handle('theodore:currentResolveProjectName', () => {
   if (!resolveAPI) return null;

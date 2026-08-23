@@ -10,7 +10,7 @@
 // so tests can pass a fake one pointing at a temp directory. Production
 // call sites (main.js) omit it and get loadConfig()'s real one.
 
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -134,6 +134,40 @@ function runTheodore(config, args, execFileImpl) {
   });
 }
 
+// Streaming counterpart to runTheodore(): for `theodore run`, a full
+// ingest -> transcribe -> analyze -> markers -> notes pipeline that can
+// take minutes, execFile's "resolve once at the end" model means the panel
+// would show nothing but "Running..." the whole time -- indistinguishable
+// from frozen. `onChunk` is called with `{stream, text}` as output arrives
+// so the UI can render it live instead.
+//
+// `spawnImpl` is injected only for tests, same pattern as `execFileImpl`
+// above. Never rejects, for the same reason runTheodore() never does: a
+// non-zero exit is `theodore` reporting something to the editor, not a bug
+// in the panel.
+function spawnTheodore(config, args, onChunk, spawnImpl) {
+  config = config || loadConfig();
+  const finalArgs = buildArgs(args);
+  const doSpawn = spawnImpl || spawn;
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = doSpawn(
+        config.theodoreExecutable,
+        finalArgs,
+        { env: Object.assign({}, process.env, { THEODORE_DATA_DIR: config.theodoreDataDir }) },
+      );
+    } catch (err) {
+      resolve({ ok: false, code: 1, error: err.message });
+      return;
+    }
+    child.stdout.on('data', (data) => onChunk({ stream: 'stdout', text: data.toString() }));
+    child.stderr.on('data', (data) => onChunk({ stream: 'stderr', text: data.toString() }));
+    child.on('error', (err) => resolve({ ok: false, code: 1, error: err.message }));
+    child.on('close', (code) => resolve({ ok: code === 0, code }));
+  });
+}
+
 module.exports = {
   ConfigError,
   loadConfig,
@@ -146,4 +180,5 @@ module.exports = {
   readPending,
   buildArgs,
   runTheodore,
+  spawnTheodore,
 };

@@ -18,4 +18,30 @@ contextBridge.exposeInMainWorld('theodore', {
   readPending: (project) => ipcRenderer.invoke('theodore:readPending', project),
   run: (args) => ipcRenderer.invoke('theodore:run', args),
   currentResolveProjectName: () => ipcRenderer.invoke('theodore:currentResolveProjectName'),
+
+  // Native picker so the editor chooses footage by clicking, never by
+  // typing a path into a text box.
+  pickSource: () => ipcRenderer.invoke('theodore:pickSource'),
+
+  // Streaming counterpart to run(): fire the command, then listen for
+  // output chunks and a final result via the two callbacks below, keyed by
+  // requestId so an old listener from a previous run never gets called
+  // for a new one. Returns an unsubscribe function.
+  runStreaming: (args, onOutput, onDone) => {
+    const requestId = `${Date.now()}-${Math.random()}`;
+    const outputListener = (_e, id, chunk) => { if (id === requestId) onOutput(chunk); };
+    const doneListener = (_e, id, result) => {
+      if (id !== requestId) return;
+      ipcRenderer.removeListener('theodore:run-output', outputListener);
+      ipcRenderer.removeListener('theodore:run-done', doneListener);
+      onDone(result);
+    };
+    ipcRenderer.on('theodore:run-output', outputListener);
+    ipcRenderer.on('theodore:run-done', doneListener);
+    ipcRenderer.send('theodore:runStreaming', requestId, args);
+    return () => {
+      ipcRenderer.removeListener('theodore:run-output', outputListener);
+      ipcRenderer.removeListener('theodore:run-done', doneListener);
+    };
+  },
 });

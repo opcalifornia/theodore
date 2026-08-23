@@ -1,9 +1,20 @@
 # Theodore -- DaVinci Resolve panel
 
 A DaVinci Resolve Studio **Workflow Integration Plugin**: an Electron app
-that Resolve loads into its own UI (`Workspace -> Workflow Integrations ->
-Theodore`), showing segments/selects, running `theodore dupes`/`gaps`, and
-driving `theodore say`/`build` without alt-tabbing to a terminal.
+that Resolve loads (`Workspace -> Workflow Integrations -> Theodore`),
+covering the entire loop -- picking raw footage and running the full
+ingest/transcribe/analyze pipeline, showing segments/selects, running
+`theodore dupes`/`gaps`, and driving `theodore say`/`build` -- with no
+terminal involved at any point.
+
+**On "embedded panel" vs. a separate window:** Resolve's Workflow
+Integration SDK gives a third-party plugin its own top-level Electron
+window; there is no supported way for a plugin to render inline inside
+Resolve's own single-window frame (Blackmagic's own bundled panels are
+native, not part of this SDK). This window still lives entirely inside the
+`Workspace -> Workflow Integrations` menu -- launched from Resolve, closed
+with Resolve, no separately-installed app icon or Dock entry -- which is
+as close to "inside DaVinci Resolve" as this SDK allows any plugin to get.
 
 ## What's real here, and what isn't yet
 
@@ -16,7 +27,7 @@ written and hoped about:
 - `npm install` succeeds and pulls a real, working Electron binary.
 - The app **actually launches** (verified under Xvfb with
   `--no-sandbox`) and **actually renders** -- a real screenshot of the
-  live window shows the topbar, all 8 tabs, and a segments table
+  live window shows the topbar, all 9 tabs, and a segments table
   correctly populated from real `analysis.json` fixture data, read
   through the real `contextBridge` -> `ipcMain` -> `theodore_bridge.js`
   path, no mocking.
@@ -26,7 +37,13 @@ written and hoped about:
   fix, instead of the silent blank screen an earlier version of this
   panel actually had -- caught and fixed by running it for real, not by
   inspection.
-- `theodore_bridge.js` has a full `node --test` suite (`npm test`, 18
+- The Ingest tab's whole flow -- native file/folder picker, then
+  `theodore run` streamed live into the console instead of buffered until
+  exit -- was driven end-to-end against a stub `theodore` executable that
+  prints on a delay: real screenshots taken mid-run show a partial console
+  (proving output streams as it arrives, not just at the end), and a final
+  screenshot shows the full output with the Run button re-enabled.
+- `theodore_bridge.js` has a full `node --test` suite (`npm test`, 22
   tests) with no Electron/Resolve dependency, and every `.js` file parses
   cleanly.
 - The `<Id>`/`<Name>`/`<Version>`/`<Description>`/`<FilePath>`
@@ -91,12 +108,13 @@ npm start
 ```
 
 This is the fastest way to catch a config typo or a `theodore` path
-problem: you'll see the real window, the real Segments/Dupes/Say tabs,
-and (if something's wrong) the red error banner naming the fix, all
+problem: you'll see the real window, the real Ingest/Segments/Dupes/Say
+tabs, and (if something's wrong) the red error banner naming the fix, all
 without Resolve in the loop. `resolve-project-name` will read
 "(not connected)" here, always -- that's expected outside Resolve, not a
-bug. Pick a real project/subject and confirm the Segments table shows
-real data before moving on.
+bug. Try the Ingest tab on one real clip end-to-end (choose footage, type
+a project/subject, Run Theodore, watch the console fill in live), then
+confirm the Segments tab shows the resulting analysis, before moving on.
 
 **3. Get `WorkflowIntegration.node` from Resolve itself:**
 
@@ -132,15 +150,24 @@ preload.js  ---ipcRenderer--->  main.js  ---ipcMain.handle--->  theodore_bridge.
                                        is currently open")
 ```
 
-`theodore_bridge.js` does two things, and only two:
+`theodore_bridge.js` does three things, and only three:
 1. **Reads** Theodore's own JSON files directly off disk
    (`analysis.json`, `redundancy.json`, `edits/pending.json`, ...) -- fast,
    no subprocess, and it's already the source of truth (see the main
    project README's "Output, per project" section for the full file list).
-2. **Runs** the `theodore` CLI as a child process for anything that's an
-   action (`say`, `build`, `dupes`, `gaps`, ...), via
-   `child_process.execFile`, with `THEODORE_DATA_DIR` set from the config
-   so the CLI and the panel always agree on where the data lives.
+2. **Runs** the `theodore` CLI as a child process for anything that's a
+   quick action (`say`, `build`, `dupes`, `gaps`, ...), via
+   `child_process.execFile` (`runTheodore()`), with `THEODORE_DATA_DIR`
+   set from the config so the CLI and the panel always agree on where the
+   data lives. This buffers all output and resolves once, which is fine
+   for anything that finishes in a second or two.
+3. **Streams** the one command that doesn't fit that model: `theodore
+   run` (the full ingest -> transcribe -> analyze -> markers -> notes
+   pipeline) can take minutes, so `spawnTheodore()` uses
+   `child_process.spawn` and calls back with each stdout/stderr chunk as
+   it arrives via `main.js`'s `theodore:runStreaming` IPC channel, instead
+   of leaving the panel showing nothing until the whole thing finishes --
+   which would look identical to frozen.
 
 Nothing here duplicates Theodore's own logic -- the panel is a thin
 window onto the same CLI and the same JSON files, which is why it needed
@@ -148,15 +175,17 @@ no changes to the `theodore` Python package at all.
 
 ## Extending it
 
-The tabs (Segments, Dupes, Gaps, Delivery, Find, Learn, Versions,
-Say/Pending) cover every CLI command except `multicam` and the v1
-ingest/transcribe/markers pipeline, which are one-time-per-subject setup
-steps rather than things an editor reaches for repeatedly while cutting.
-Every action tab follows the same shape: `bindRunButton()` in
-`js/renderer.js` builds an argv array and hands it to
-`window.theodore.run(...)`, which round-trips to `theodore_bridge.js`'s
-`runTheodore()` -- no new bridge code needed for a new command, just a
-button and an argv builder. Versions/Diff/Revert and Delivery/Peaks all
-share one output pane per tab, since they're closely related actions on
-the same underlying data; splitting that further is a UI call, not an
-architectural one.
+The Ingest tab covers `theodore run` (the full per-subject pipeline, via
+a native footage picker so no path is ever typed); the rest of the tabs
+(Segments, Dupes, Gaps, Delivery, Find, Learn, Versions, Say/Pending)
+cover every other CLI command an editor reaches for repeatedly while
+cutting, except `multicam`. Every quick-action tab follows the same
+shape: `bindRunButton()` in `js/renderer.js` builds an argv array and
+hands it to `window.theodore.run(...)`, which round-trips to
+`theodore_bridge.js`'s `runTheodore()` -- no new bridge code needed for a
+new command, just a button and an argv builder. A long-running command
+instead wants `window.theodore.runStreaming(args, onOutput, onDone)`,
+modeled on the Ingest tab's `initIngestTab()`. Versions/Diff/Revert and
+Delivery/Peaks all share one output pane per tab, since they're closely
+related actions on the same underlying data; splitting that further is a
+UI call, not an architectural one.

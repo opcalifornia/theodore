@@ -84,3 +84,20 @@ th { color: #999; font-weight: normal; }
 
 #pending-list { list-style: none; padding: 0; }
 #pending-list li { padding: 3px 0; border-bottom: 1px solid #2a2a2a; }
+
+.hint { color: #999; margin-top: 0; }
+#ingest-form .field-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+#ingest-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+#ingest-form input { width: 100%; }
+#source-path { color: #999; word-break: break-all; }
+#run-ingest-btn { margin-top: 4px; }

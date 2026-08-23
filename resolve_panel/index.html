@@ -22,7 +22,8 @@
   </header>
 
   <nav id="tabs">
-    <button class="tab-btn active" data-tab="segments">Segments</button>
+    <button class="tab-btn active" data-tab="ingest">Ingest</button>
+    <button class="tab-btn" data-tab="segments">Segments</button>
     <button class="tab-btn" data-tab="dupes">Dupes</button>
     <button class="tab-btn" data-tab="gaps">Gaps</button>
     <button class="tab-btn" data-tab="delivery">Delivery</button>
@@ -33,7 +34,28 @@
   </nav>
 
   <main>
-    <section id="tab-segments" class="tab-panel active">
+    <section id="tab-ingest" class="tab-panel active">
+      <p class="hint">Pick raw footage and Theodore runs the full pipeline -- ingest, transcribe, analyze,
+        markers, notes -- with no terminal needed. New project/subject names are registered automatically.</p>
+      <div id="ingest-form">
+        <div class="field-row">
+          <button id="pick-source-btn">Choose footage...</button>
+          <span id="source-path">(none chosen)</span>
+        </div>
+        <div class="field-row">
+          <label>Project <input id="ingest-project" type="text" placeholder="e.g. river-doc"></label>
+          <label>Subject <input id="ingest-subject" type="text" placeholder="e.g. haylee"></label>
+        </div>
+        <div class="field-row">
+          <label>Display name <input id="ingest-display-name" type="text" placeholder="optional, e.g. Haylee Torres"></label>
+          <label>Interviewer speaker id <input id="ingest-interviewer" type="text" placeholder="optional, e.g. 1"></label>
+        </div>
+        <button id="run-ingest-btn">Run Theodore</button>
+      </div>
+      <pre id="ingest-output" class="console"></pre>
+    </section>
+
+    <section id="tab-segments" class="tab-panel">
       <table id="segments-table">
         <thead>
           <tr><th>id</th><th>question</th><th>strength</th><th>best line</th><th>issues</th></tr>

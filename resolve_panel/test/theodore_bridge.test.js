@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { EventEmitter } = require('events');
 
 const bridge = require('../theodore_bridge');
 
@@ -154,5 +155,79 @@ test('runTheodore rejects bad args before ever spawning a process', async () => 
   let spawned = false;
   const fakeExecFile = (cmd, args, opts, cb) => { spawned = true; cb(null, '', ''); };
   assert.throws(() => bridge.runTheodore(config, 'not-an-array', fakeExecFile), TypeError);
+  assert.equal(spawned, false);
+});
+
+// A minimal stand-in for the ChildProcess node.spawn() returns: an
+// EventEmitter with .stdout/.stderr sub-emitters, driven by the test itself
+// rather than a real process.
+function makeFakeChild() {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
+test('spawnTheodore streams stdout/stderr chunks via onChunk as they arrive', async () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChild();
+  let captured = null;
+  const fakeSpawn = (cmd, args, opts) => {
+    captured = { cmd, args, opts };
+    return child;
+  };
+  const chunks = [];
+  const promise = bridge.spawnTheodore(config, ['run', 'src', '--project', 'docproj', '--subject', 'haylee'], (c) => chunks.push(c), fakeSpawn);
+
+  child.stdout.emit('data', Buffer.from('ingesting...\n'));
+  child.stderr.emit('data', Buffer.from('warning: low disk\n'));
+  child.stdout.emit('data', Buffer.from('done.\n'));
+  child.emit('close', 0);
+
+  const result = await promise;
+  assert.equal(captured.cmd, '/usr/bin/theodore-fake');
+  assert.equal(captured.opts.env.THEODORE_DATA_DIR, dataDir);
+  assert.deepEqual(chunks, [
+    { stream: 'stdout', text: 'ingesting...\n' },
+    { stream: 'stderr', text: 'warning: low disk\n' },
+    { stream: 'stdout', text: 'done.\n' },
+  ]);
+  assert.deepEqual(result, { ok: true, code: 0 });
+});
+
+test('spawnTheodore reports a non-zero exit without throwing', async () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChild();
+  const fakeSpawn = () => child;
+  const promise = bridge.spawnTheodore(config, ['run', 'src', '--project', 'docproj', '--subject', 'haylee'], () => {}, fakeSpawn);
+
+  child.emit('close', 1);
+
+  const result = await promise;
+  assert.deepEqual(result, { ok: false, code: 1 });
+});
+
+test('spawnTheodore resolves (not rejects) when the process itself fails to start', async () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/no/such/executable' };
+  const child = makeFakeChild();
+  const fakeSpawn = () => child;
+  const promise = bridge.spawnTheodore(config, ['run'], () => {}, fakeSpawn);
+
+  child.emit('error', new Error('spawn ENOENT'));
+
+  const result = await promise;
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ENOENT/);
+});
+
+test('spawnTheodore rejects bad args before ever spawning a process', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  let spawned = false;
+  const fakeSpawn = () => { spawned = true; return makeFakeChild(); };
+  assert.throws(() => bridge.spawnTheodore(config, 'not-an-array', () => {}, fakeSpawn), TypeError);
   assert.equal(spawned, false);
 });

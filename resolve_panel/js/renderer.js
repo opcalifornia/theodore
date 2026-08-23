@@ -167,7 +167,69 @@ function bindRunButton(buttonId, outputId, buildArgs, afterRun) {
   });
 }
 
+// Ingest tab: pick footage with a native dialog (never type a path),
+// stream `theodore run`'s output live so a multi-minute pipeline never
+// looks frozen, then refresh the project/subject pickers so a
+// newly-registered project shows up without a manual Refresh click.
+function initIngestTab() {
+  let sourcePath = null;
+
+  el('pick-source-btn').addEventListener('click', async () => {
+    try {
+      const picked = await window.theodore.pickSource();
+      if (picked) {
+        sourcePath = picked;
+        el('source-path').textContent = sourcePath;
+      }
+      clearError();
+    } catch (err) {
+      showError(err);
+    }
+  });
+
+  el('run-ingest-btn').addEventListener('click', () => {
+    const project = el('ingest-project').value.trim();
+    const subject = el('ingest-subject').value.trim();
+    const out = el('ingest-output');
+
+    if (!sourcePath) { showError('Choose footage first.'); return; }
+    if (!project || !subject) { showError('Project and subject are both required.'); return; }
+
+    const args = ['run', sourcePath, '--project', project, '--subject', subject];
+    const displayName = el('ingest-display-name').value.trim();
+    const interviewer = el('ingest-interviewer').value.trim();
+    if (displayName) args.push('--display-name', displayName);
+    if (interviewer) args.push('--interviewer', interviewer);
+
+    clearError();
+    out.textContent = '';
+    el('run-ingest-btn').disabled = true;
+
+    window.theodore.runStreaming(
+      args,
+      (chunk) => { out.textContent += chunk.text; out.scrollTop = out.scrollHeight; },
+      async (result) => {
+        el('run-ingest-btn').disabled = false;
+        if (!result.ok) {
+          out.textContent += `\n(exit code ${result.code}${result.error ? ': ' + result.error : ''})`;
+        }
+        // The run may have registered a brand-new project/subject --
+        // reload the picker and land on exactly what was just built.
+        await safely(refreshProjects);
+        el('project-select').value = project;
+        state.project = project;
+        await safely(refreshSubjects);
+        el('subject-select').value = subject;
+        state.subject = subject;
+        await safely(refreshAll);
+      },
+    );
+  });
+}
+
 async function init() {
+  initIngestTab();
+
   el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;
     safely(refreshSubjects);
