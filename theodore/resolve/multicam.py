@@ -1,6 +1,7 @@
 """Detects which of a subject's source files are camera angles of the same
-simultaneous recording, and writes the ``multicam.json`` that
-:mod:`theodore.assembly.builder` consumes.
+simultaneous recording, and which audio-only files (a lav or boom
+recorder's own take) belong with which camera(s) -- writing both into the
+``multicam.json`` that :mod:`theodore.assembly.builder` consumes.
 
 Theodore never creates the Multicam Clip itself. Resolve's scripting API has
 no supported call for it, and guessing wrong would silently reshape an
@@ -23,6 +24,31 @@ Two deliberately separate steps, the same split as
      Resolve. Purely informational: it reports which proposed clip names
      already exist in the media pool so the CLI can tell the editor what is
      still left to create. Optional; everything works without it.
+
+Camera-to-external-audio: :func:`plan_audio_sync`
+--------------------------------------------------
+The same split of labour applies to a lav or boom recorder's own audio-only
+file: Theodore identifies which camera file(s) it belongs with and tells the
+editor exactly what to do, but never touches the audio itself. Deliberately
+NOT implemented as Theodore re-computing a waveform cross-correlation offset:
+Resolve's own Media Pool already has this exact feature (right-click ->
+"Auto Sync Audio" -> "Based on Waveform and Append Tracks"), production-
+tested against clock drift and dropouts in ways a from-scratch reimplementation
+here would not be, and it also decides which existing audio track to keep
+alongside the new one. Recomputing that math in Python would be the "guessing
+wrong reshapes the editor's timeline" risk this module's docstring already
+warns about, aimed at a problem Resolve has already solved.
+
+An external recorder is essentially never jam-synced to camera timecode in an
+indie/documentary setup (that needs dedicated hardware most solo shooters
+don't have) -- so unlike video-to-video grouping above, this does not require
+matching embedded timecode. When exactly one audio-only file exists for a
+subject, it is recommended for every camera file that subject has, timecode
+or not: one continuous external recording covering the whole session is the
+standard single/dual-camera interview setup. Multiple audio-only files for one
+subject are a real ambiguity Theodore cannot resolve from metadata alone (no
+signal says which file goes with which take) and are reported as such rather
+than guessed.
 
 
 The comparison space: "timecode label seconds"
@@ -164,6 +190,10 @@ class MulticamPlan:
     # Files that were considered but matched nothing.
     ungrouped: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # Audio-only files (a lav or boom recorder's own take) this subject has,
+    # each with which camera file(s) to select alongside it in Resolve. See
+    # plan_audio_sync().
+    external_audio: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """The exact on-disk shape. ``groups[].multicam_clip_name`` and
@@ -197,6 +227,7 @@ class MulticamPlan:
             "ambiguous": list(self.ambiguous),
             "ungrouped": list(self.ungrouped),
             "notes": list(self.notes),
+            "external_audio": list(self.external_audio),
         }
 
 
@@ -346,6 +377,10 @@ def plan_multicam(media: list[dict], subject: str) -> MulticamPlan:
     instead of being resolved by a silent coin flip.
     """
     plan = MulticamPlan(subject=str(subject))
+    # Computed unconditionally, up front: audio-sync recommendations don't
+    # depend on whether any camera grouping succeeds, and several branches
+    # below return early once the video-angle question is settled.
+    plan.external_audio = plan_audio_sync(media, subject)
 
     candidates: list[Angle] = []
     for entry in media or []:
@@ -476,6 +511,102 @@ def plan_multicam(media: list[dict], subject: str) -> MulticamPlan:
 
 
 # --------------------------------------------------------------------------
+# Camera-to-external-audio sync recommendations
+# --------------------------------------------------------------------------
+
+def _camera_paths(media: list[dict]) -> list[str]:
+    """Every file with a video stream, timecode or not. Unlike the multicam
+    grouping candidates above, an external recorder does not need embedded
+    timecode on the camera side either -- waveform-based sync doesn't care,
+    so a camera file with no usable timecode still needs its audio matched
+    just as much as one that has it."""
+    return sorted({
+        str(e["path"]) for e in (media or [])
+        if isinstance(e, dict) and e.get("has_video") and e.get("path")
+    })
+
+
+def _audio_only_candidates(media: list[dict]) -> list[dict]:
+    """Audio-only entries (a lav or boom recorder's own file) with a real
+    duration to reason about. Mirrors _to_angle()'s exclusion of audio-only
+    files from camera grouping -- this is the other side of that exclusion."""
+    out = []
+    for entry in media or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("has_video") or not entry.get("has_audio"):
+            continue
+        path = str(entry.get("path") or "")
+        if not path:
+            continue
+        try:
+            duration = float(entry.get("duration_seconds"))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration <= 0:
+            continue
+        start_tc = str(entry.get("start_timecode") or "")
+        out.append({
+            "path": path,
+            "duration_seconds": duration,
+            "has_embedded_timecode": bool(start_tc) and start_tc != NO_TIMECODE_SENTINEL,
+            "start_timecode": start_tc,
+        })
+    return out
+
+
+def plan_audio_sync(media: list[dict], subject: str) -> list[dict]:
+    """One recommendation per audio-only file this subject has, naming which
+    camera file(s) to select alongside it in Resolve. Pure and
+    Resolve-independent, like :func:`plan_multicam`; see the module
+    docstring for why this recommends a Resolve feature rather than
+    computing a sync offset itself.
+
+    Empty when there is nothing to recommend: no camera file, no audio-only
+    file, or (implicitly) both -- there is nothing useful to say about an
+    external recording with no camera to pair it with, or vice versa.
+    """
+    cameras = _camera_paths(media)
+    audio_files = _audio_only_candidates(media)
+    if not cameras or not audio_files:
+        return []
+
+    multiple = len(audio_files) > 1
+    recommendations = []
+    for audio in sorted(audio_files, key=lambda a: a["path"]):
+        if audio["has_embedded_timecode"]:
+            note = (
+                f"Has embedded timecode ({audio['start_timecode']}). If this recorder was "
+                "jam-synced to camera, select it with the matching camera file(s) and use "
+                "Auto Sync Audio -> 'Based on Timecode and Append Tracks'; otherwise use "
+                "'Based on Waveform and Append Tracks', which does not depend on it."
+            )
+        else:
+            note = (
+                "No embedded timecode -- select it with the camera file(s) below and use "
+                "Auto Sync Audio -> 'Based on Waveform and Append Tracks', which does not "
+                "need one."
+            )
+        if multiple:
+            note += (
+                f" {len(audio_files)} external audio files were found for this subject -- "
+                "Theodore has no signal to tell which belongs with which take, so this is "
+                "listed against every camera file. Confirm the right pairing by ear before "
+                "syncing."
+            )
+        recommendations.append({
+            "path": audio["path"],
+            "duration_seconds": audio["duration_seconds"],
+            "has_embedded_timecode": audio["has_embedded_timecode"],
+            "start_timecode": audio["start_timecode"] if audio["has_embedded_timecode"] else None,
+            "camera_files": cameras,
+            "ambiguous": multiple,
+            "note": note,
+        })
+    return recommendations
+
+
+# --------------------------------------------------------------------------
 # Persistence
 # --------------------------------------------------------------------------
 
@@ -579,5 +710,13 @@ def format_plan(plan: MulticamPlan) -> str:
     for note in plan.notes:
         lines.append("")
         lines.append(f"  Note: {note}")
+
+    for rec in plan.external_audio:
+        lines.append("")
+        lines.append(f"  External audio:  {Path(rec['path']).name}  ({rec['duration_seconds']:.1f}s)")
+        lines.append(f"    {rec['note']}")
+        lines.append("    Select it together with:")
+        for camera_path in rec["camera_files"]:
+            lines.append(f"      - {Path(camera_path).name}")
 
     return "\n".join(lines)

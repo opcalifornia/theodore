@@ -197,8 +197,22 @@ Using…", Angle Sync: Timecode), named exactly what the command printed.
 plain source clip; if it isn't there, the build warns and falls back, so a
 forgotten step is never a failed build. Grouping is conservative on purpose:
 files with no embedded timecode (ffprobe reports `00:00:00:00`) are never
-grouped, audio-only files are excluded, and a chain of partial overlaps is
-reported as ambiguous rather than resolved by a guess.
+grouped, audio-only files are excluded from camera grouping, and a chain of
+partial overlaps is reported as ambiguous rather than resolved by a guess.
+
+The same command also covers the other half of a multi-mic shoot: a lav or
+boom recorder's own audio-only file. Rather than reimplementing waveform
+cross-correlation, Theodore names which camera file(s) to select alongside
+it and recommends Resolve's own Media Pool feature — right-click → "Auto
+Sync Audio" → "Based on Waveform and Append Tracks" (or "Based on Timecode
+and Append Tracks" if the recorder was actually jam-synced) — since Resolve's
+implementation already handles clock drift and dropouts better than a
+from-scratch reimplementation would, and this stays consistent with
+multicam's own "Theodore decides which files, Resolve does the technical
+work" split. One external recording is assumed to cover the whole subject
+regardless of camera grouping (the standard single/dual-camera interview
+setup); more than one is reported so the editor can confirm the pairing by
+ear rather than have Theodore guess.
 
 `theodore learn` compares Selects' strength predictions against the
 current edit list version's actual kept/dropped state, surfacing where
@@ -225,7 +239,7 @@ data/<project>/
     ├── analysis.json            # segments + selects + themes, combined
     ├── delivery.json            # v2.0 Part 3: pitch/energy/pause/onset-delay profiles (optional)
     ├── redundancy.json          # v2.0 Part 4: near-duplicate answer groups (optional)
-    ├── multicam.json             # v1.5: detected camera-angle groups + proposed clip names (optional)
+    ├── multicam.json             # v1.5: detected camera-angle groups + proposed clip names; also external-audio sync recommendations (optional)
     ├── markers.edl               # EDL fallback, written only if Resolve wasn't reachable
     ├── interview_notes.md        # human-readable interview log
     └── selects.csv               # machine-readable, sorted by strength

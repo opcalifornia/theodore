@@ -1132,18 +1132,24 @@ def _merged_base_trims(project_dir: Path, subjects) -> dict:
                    "already exist. Skipped silently when Resolve isn't reachable.")
 def multicam(project: str, subject: str, check_resolve: bool):
     """Find which of a subject's camera files are angles of the same moment,
-    and name the multicam clip(s) to create in Resolve.
+    name the multicam clip(s) to create in Resolve, and -- if the subject
+    also has a lav or boom recorder's own audio file -- which camera file(s)
+    to sync it to.
 
-    Works off the embedded timecode `theodore ingest` already probed, so it
-    needs no analysis pass and no Resolve connection. Files with no embedded
-    timecode (ffprobe reports 00:00:00:00) are never grouped -- that is the
-    absence of a sync signal, not a start at frame zero.
+    Camera grouping works off the embedded timecode `theodore ingest` already
+    probed, so it needs no analysis pass and no Resolve connection. Files
+    with no embedded timecode (ffprobe reports 00:00:00:00) are never
+    grouped -- that is the absence of a sync signal, not a start at frame
+    zero. External audio doesn't need embedded timecode at all (see below).
 
-    Theodore does NOT create the multicam clip: that is a manual step in
-    Resolve (select the angles -> right-click -> New Multicam Clip Using...).
-    Name it EXACTLY what this command prints and `theodore build` will pick
-    it up automatically; if it doesn't exist, the build just uses the plain
-    source clip.
+    Theodore does NOT create the multicam clip or touch any audio itself:
+    both are manual steps in Resolve. For camera angles: select them ->
+    right-click -> New Multicam Clip Using..., name it EXACTLY what this
+    command prints, and `theodore build` will pick it up automatically (if
+    it doesn't exist yet, the build just uses the plain source clip). For
+    external audio: select it with the camera file(s) this command names ->
+    right-click -> Auto Sync Audio -> Based on Waveform and Append Tracks
+    (Resolve's own audio-waveform sync, not something Theodore recomputes).
     """
     project_dir, reg = _load_registry(project)
     _setup_logging(project_dir)
@@ -1163,10 +1169,11 @@ def multicam(project: str, subject: str, check_resolve: bool):
     click.echo(f"\nWrote {out}")
 
     if not plan.groups:
-        click.echo(
-            "\nNothing to create in Resolve. `theodore build` will use the plain source "
-            "clips, which is the normal path."
-        )
+        if not plan.external_audio:
+            click.echo(
+                "\nNothing to create in Resolve. `theodore build` will use the plain source "
+                "clips, which is the normal path."
+            )
         return
 
     existing: list[str] = []

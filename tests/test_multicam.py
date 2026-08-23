@@ -163,6 +163,132 @@ def test_audio_only_files_are_excluded():
     assert "audio-only" in skip_reason(plan, "lav.wav")
 
 
+# --------------------------------------------------------------------------
+# camera-to-external-audio sync recommendations
+# --------------------------------------------------------------------------
+
+def test_external_audio_recommended_for_every_camera_file():
+    plan = mc.plan_multicam([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/cam_b.mov", tc="01:00:00:05", duration=598.0),
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+
+    assert len(plan.external_audio) == 1
+    rec = plan.external_audio[0]
+    assert rec["path"] == "/m/lav.wav"
+    assert rec["camera_files"] == ["/m/cam_a.mov", "/m/cam_b.mov"]
+    assert rec["ambiguous"] is False
+    assert rec["has_embedded_timecode"] is False
+    assert rec["start_timecode"] is None
+
+
+def test_external_audio_recommended_even_with_a_single_ungrouped_camera():
+    # No multicam grouping possible with only one camera file -- the audio
+    # still needs to be synced to it, so this must not depend on a group
+    # having formed.
+    plan = mc.plan_multicam([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+
+    assert plan.groups == []
+    assert len(plan.external_audio) == 1
+    assert plan.external_audio[0]["camera_files"] == ["/m/cam_a.mov"]
+
+
+def test_no_external_audio_recommendation_without_any_camera_file():
+    recs = mc.plan_audio_sync([
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+    assert recs == []
+
+
+def test_no_external_audio_recommendation_without_any_audio_file():
+    recs = mc.plan_audio_sync([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+    ], "haylee")
+    assert recs == []
+
+
+def test_audio_file_with_no_timecode_recommends_waveform_sync():
+    recs = mc.plan_audio_sync([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+    assert len(recs) == 1
+    assert "Based on Waveform" in recs[0]["note"]
+    assert "Based on Timecode" not in recs[0]["note"]
+
+
+def test_audio_file_with_real_timecode_mentions_timecode_sync_option():
+    recs = mc.plan_audio_sync([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/boom.wav", tc="01:00:00:00", fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec["has_embedded_timecode"] is True
+    assert rec["start_timecode"] == "01:00:00:00"
+    assert "Based on Timecode" in rec["note"]
+    assert "Based on Waveform" in rec["note"]  # still offered as the no-jam-sync fallback
+
+
+def test_multiple_external_audio_files_are_flagged_ambiguous_not_guessed():
+    recs = mc.plan_audio_sync([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/lav1.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=300.0,
+              video=False, audio=True),
+        media("/m/lav2.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=300.0,
+              video=False, audio=True),
+    ], "haylee")
+
+    assert len(recs) == 2
+    assert {r["path"] for r in recs} == {"/m/lav1.wav", "/m/lav2.wav"}
+    for rec in recs:
+        assert rec["ambiguous"] is True
+        assert rec["camera_files"] == ["/m/cam_a.mov"]
+        assert "no signal to tell which belongs with which take" in rec["note"]
+
+
+def test_audio_only_file_with_zero_or_missing_duration_is_ignored():
+    recs = mc.plan_audio_sync([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/broken.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=0.0,
+              video=False, audio=True),
+    ], "haylee")
+    assert recs == []
+
+
+def test_format_plan_reports_external_audio():
+    plan = mc.plan_multicam([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+    text = mc.format_plan(plan)
+    assert "External audio:  lav.wav" in text
+    assert "cam_a.mov" in text
+    assert "Auto Sync Audio" not in text or "Based on Waveform" in text
+
+
+def test_external_audio_round_trips_through_json(tmp_path):
+    plan = mc.plan_multicam([
+        media("/m/cam_a.mov", tc="01:00:00:00", duration=600.0),
+        media("/m/lav.wav", tc=mc.NO_TIMECODE_SENTINEL, fps="0/1", duration=600.0,
+              video=False, audio=True),
+    ], "haylee")
+    out = mc.save_multicam(plan, tmp_path)
+    data = json.loads(out.read_text())
+    assert data["external_audio"][0]["path"] == "/m/lav.wav"
+    assert mc.load_multicam(tmp_path)["external_audio"][0]["path"] == "/m/lav.wav"
+
+
 def test_single_video_file_produces_no_groups():
     plan = mc.plan_multicam([media("/m/cam_a.mov", tc="01:00:00:00")], "haylee")
 
