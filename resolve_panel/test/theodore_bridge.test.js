@@ -133,6 +133,40 @@ test('runTheodore invokes the configured executable with THEODORE_DATA_DIR set, 
   assert.deepEqual(result, { ok: true, code: 0, stdout: 'ok output', stderr: '' });
 });
 
+test('runTheodore adds Homebrew paths to PATH so ffprobe/ffmpeg are findable when launched by Resolve', async () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const originalPath = process.env.PATH;
+  process.env.PATH = '/usr/bin:/bin';
+  let captured = null;
+  const fakeExecFile = (cmd, args, opts, cb) => { captured = opts; cb(null, '', ''); };
+  try {
+    await bridge.runTheodore(config, ['status', '--project', 'docproj'], fakeExecFile);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+  const entries = captured.env.PATH.split(path.delimiter);
+  assert.ok(entries.includes('/usr/bin'), 'keeps the original PATH entries');
+  assert.ok(entries.includes('/opt/homebrew/bin'), 'adds Apple Silicon Homebrew bin');
+  assert.ok(entries.includes('/usr/local/bin'), 'adds Intel Homebrew bin');
+});
+
+test('runTheodore does not duplicate a Homebrew path already on PATH', async () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const originalPath = process.env.PATH;
+  process.env.PATH = '/usr/bin:/opt/homebrew/bin';
+  let captured = null;
+  const fakeExecFile = (cmd, args, opts, cb) => { captured = opts; cb(null, '', ''); };
+  try {
+    await bridge.runTheodore(config, ['status', '--project', 'docproj'], fakeExecFile);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+  const entries = captured.env.PATH.split(path.delimiter);
+  assert.equal(entries.filter((p) => p === '/opt/homebrew/bin').length, 1);
+});
+
 test('runTheodore reports a non-zero exit without throwing', async () => {
   const dataDir = makeTempDataDir();
   const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };

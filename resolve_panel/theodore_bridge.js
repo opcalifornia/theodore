@@ -16,6 +16,26 @@ const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, 'theodore-panel-config.json');
 
+// DaVinci Resolve launches this plugin as a GUI app via LaunchServices, not
+// from a login shell -- on macOS that means a bare system PATH
+// ("/usr/bin:/bin:/usr/sbin:/sbin") that does NOT include Homebrew, even
+// though a Terminal's PATH does (via .zshrc/.zprofile sourcing `brew
+// shellenv`). ffprobe/ffmpeg, installed via Homebrew, are invisible to a
+// child process spawned from here as a result -- the exact same `theodore`
+// command works fine typed into Terminal and fails here. Both Apple
+// Silicon (/opt/homebrew) and Intel (/usr/local) Homebrew prefixes are
+// covered since either is possible.
+const HOMEBREW_PATHS = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin'];
+
+function childEnv(config) {
+  const existing = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const merged = existing.concat(HOMEBREW_PATHS.filter((p) => !existing.includes(p)));
+  return Object.assign({}, process.env, {
+    PATH: merged.join(path.delimiter),
+    THEODORE_DATA_DIR: config.theodoreDataDir,
+  });
+}
+
 class ConfigError extends Error {}
 
 function loadConfig() {
@@ -117,7 +137,7 @@ function runTheodore(config, args, execFileImpl) {
     exec(
       config.theodoreExecutable,
       finalArgs,
-      { env: Object.assign({}, process.env, { THEODORE_DATA_DIR: config.theodoreDataDir }) },
+      { env: childEnv(config) },
       (error, stdout, stderr) => {
         // Resolved, not rejected, even on failure: a non-zero exit from
         // `theodore` (a bad --exclude id, a cost guardrail, a rejected
@@ -155,7 +175,7 @@ function spawnTheodore(config, args, onChunk, spawnImpl) {
       child = doSpawn(
         config.theodoreExecutable,
         finalArgs,
-        { env: Object.assign({}, process.env, { THEODORE_DATA_DIR: config.theodoreDataDir }) },
+        { env: childEnv(config) },
       );
     } catch (err) {
       resolve({ ok: false, code: 1, error: err.message });
@@ -188,7 +208,7 @@ function startChat(config, project, onChunk, onExit, spawnImpl) {
   const child = doSpawn(
     config.theodoreExecutable,
     ['chat', '--project', project],
-    { env: Object.assign({}, process.env, { THEODORE_DATA_DIR: config.theodoreDataDir }) },
+    { env: childEnv(config) },
   );
   child.stdout.on('data', (data) => onChunk({ stream: 'stdout', text: data.toString() }));
   child.stderr.on('data', (data) => onChunk({ stream: 'stderr', text: data.toString() }));
