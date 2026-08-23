@@ -77,9 +77,21 @@ class Stopwatch:
 
 
 def _media_files(source: Path) -> list[Path]:
+    """A single file, or every media file under `source`, searched
+    recursively -- real camera/audio recorder dumps are almost always
+    organized into subfolders (per card, per file type, per session), so a
+    flat one-level scan would silently find nothing even though the media
+    is right there. AppleDouble sidecar files (macOS writes a hidden
+    "._name.ext" next to every real file on exFAT/FAT32 drives, which most
+    camera SSDs use) are skipped -- same extension as the real file, but a
+    few KB of metadata, not media ffprobe can read.
+    """
     if source.is_file():
         return [source]
-    return sorted(p for p in source.iterdir() if p.suffix.lower() in MEDIA_EXTS)
+    return sorted(
+        p for p in source.rglob("*")
+        if p.is_file() and p.suffix.lower() in MEDIA_EXTS and not p.name.startswith("._")
+    )
 
 
 def _load_registry(project: str) -> tuple[Path, dict]:
