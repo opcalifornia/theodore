@@ -59,6 +59,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (activeChat) activeChat.stop();
   try {
     const WorkflowIntegration = require('./WorkflowIntegration.node');
     WorkflowIntegration.CleanUp();
@@ -112,6 +113,35 @@ ipcMain.on('theodore:runStreaming', (event, requestId, args) => {
     if (event.sender.isDestroyed()) return;
     event.sender.send('theodore:run-done', requestId, result);
   });
+});
+
+// One conversational `theodore chat` process at a time, matching the
+// panel's single-project-open-at-once UI. Held here (not in
+// theodore_bridge.js) because it's per-window session state, not logic --
+// exactly the "main.js is a thin wrapper" split the rest of the IPC
+// surface already follows.
+let activeChat = null;
+
+ipcMain.on('theodore:chatStart', (event, project) => {
+  if (activeChat) activeChat.stop();
+  activeChat = bridge.startChat(
+    undefined,
+    project,
+    (chunk) => { if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-output', chunk); },
+    (info) => {
+      activeChat = null;
+      if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-exit', info);
+    },
+  );
+});
+
+ipcMain.on('theodore:chatSend', (_e, line) => {
+  if (activeChat) activeChat.send(line);
+});
+
+ipcMain.on('theodore:chatStop', () => {
+  if (activeChat) activeChat.stop();
+  activeChat = null;
 });
 
 ipcMain.handle('theodore:currentResolveProjectName', () => {

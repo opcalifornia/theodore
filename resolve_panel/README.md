@@ -3,9 +3,10 @@
 A DaVinci Resolve Studio **Workflow Integration Plugin**: an Electron app
 that Resolve loads (`Workspace -> Workflow Integrations -> Theodore`),
 covering the entire loop -- picking raw footage and running the full
-ingest/transcribe/analyze pipeline, showing segments/selects, running
-`theodore dupes`/`gaps`, and driving `theodore say`/`build` -- with no
-terminal involved at any point.
+ingest/transcribe/analyze pipeline, holding a live Claude-backed
+conversation about the edit, showing segments/selects, running `theodore
+dupes`/`gaps`, and driving `theodore say`/`build` -- with no terminal
+involved at any point.
 
 **On "embedded panel" vs. a separate window:** Resolve's Workflow
 Integration SDK gives a third-party plugin its own top-level Electron
@@ -27,7 +28,7 @@ written and hoped about:
 - `npm install` succeeds and pulls a real, working Electron binary.
 - The app **actually launches** (verified under Xvfb with
   `--no-sandbox`) and **actually renders** -- a real screenshot of the
-  live window shows the topbar, all 9 tabs, and a segments table
+  live window shows the topbar, all 10 tabs, and a segments table
   correctly populated from real `analysis.json` fixture data, read
   through the real `contextBridge` -> `ipcMain` -> `theodore_bridge.js`
   path, no mocking.
@@ -43,7 +44,19 @@ written and hoped about:
   prints on a delay: real screenshots taken mid-run show a partial console
   (proving output streams as it arrives, not just at the end), and a final
   screenshot shows the full output with the Run button re-enabled.
-- `theodore_bridge.js` has a full `node --test` suite (`npm test`, 22
+- The Chat tab was driven end-to-end against the **real** `theodore chat`
+  process (not a stub) over a hand-built project fixture: the greeting
+  banner, `pending`, `help`, and `versions` all round-tripped correctly
+  through `startChat()`'s stdin/stdout pipes, with the transcript rendered
+  live in a real screenshot. This is also what caught a real bug, not a
+  panel-side one: `theodore chat` used to construct its Anthropic client
+  (and hard-require an API key) before the REPL loop even started, so
+  meta-commands that never touch Claude -- `pending`, `versions`, `build`
+  -- were needlessly blocked by a missing key, and a bad key crashed the
+  whole process with a raw traceback instead of a clean message. Fixed in
+  `theodore/cli.py`'s `chat()` to construct the client lazily, on the
+  first instruction that actually needs it.
+- `theodore_bridge.js` has a full `node --test` suite (`npm test`, 27
   tests) with no Electron/Resolve dependency, and every `.js` file parses
   cleanly.
 - The `<Id>`/`<Name>`/`<Version>`/`<Description>`/`<FilePath>`
@@ -108,13 +121,15 @@ npm start
 ```
 
 This is the fastest way to catch a config typo or a `theodore` path
-problem: you'll see the real window, the real Ingest/Segments/Dupes/Say
-tabs, and (if something's wrong) the red error banner naming the fix, all
-without Resolve in the loop. `resolve-project-name` will read
+problem: you'll see the real window, the real Ingest/Chat/Segments/Dupes/
+Say tabs, and (if something's wrong) the red error banner naming the fix,
+all without Resolve in the loop. `resolve-project-name` will read
 "(not connected)" here, always -- that's expected outside Resolve, not a
 bug. Try the Ingest tab on one real clip end-to-end (choose footage, type
-a project/subject, Run Theodore, watch the console fill in live), then
-confirm the Segments tab shows the resulting analysis, before moving on.
+a project/subject, Run Theodore, watch the console fill in live), confirm
+the Segments tab shows the resulting analysis, then open the Chat tab and
+type an instruction -- it's a live `theodore chat` process, so the same
+Anthropic key from `theodore setup` is what it's using -- before moving on.
 
 **3. Get `WorkflowIntegration.node` from Resolve itself:**
 
@@ -150,7 +165,7 @@ preload.js  ---ipcRenderer--->  main.js  ---ipcMain.handle--->  theodore_bridge.
                                        is currently open")
 ```
 
-`theodore_bridge.js` does three things, and only three:
+`theodore_bridge.js` does four things, and only four:
 1. **Reads** Theodore's own JSON files directly off disk
    (`analysis.json`, `redundancy.json`, `edits/pending.json`, ...) -- fast,
    no subprocess, and it's already the source of truth (see the main
@@ -161,13 +176,23 @@ preload.js  ---ipcRenderer--->  main.js  ---ipcMain.handle--->  theodore_bridge.
    set from the config so the CLI and the panel always agree on where the
    data lives. This buffers all output and resolves once, which is fine
    for anything that finishes in a second or two.
-3. **Streams** the one command that doesn't fit that model: `theodore
-   run` (the full ingest -> transcribe -> analyze -> markers -> notes
-   pipeline) can take minutes, so `spawnTheodore()` uses
+3. **Streams** the one-shot commands that don't fit the buffered model:
+   `theodore run` (the full ingest -> transcribe -> analyze -> markers ->
+   notes pipeline) can take minutes, so `spawnTheodore()` uses
    `child_process.spawn` and calls back with each stdout/stderr chunk as
    it arrives via `main.js`'s `theodore:runStreaming` IPC channel, instead
    of leaving the panel showing nothing until the whole thing finishes --
    which would look identical to frozen.
+4. **Holds open** the one long-lived, stateful command: `theodore chat`
+   is a REPL, not a one-shot process, so `startChat()` spawns it once per
+   Chat-tab session and keeps it alive across many lines -- each
+   `send(line)` writes to its stdin, each reply streams back over the same
+   `theodore:chat-output` channel `runStreaming` uses for output, until
+   `stop()` (or the process exiting on its own) tears it down. One process
+   per open chat, not one per line, is what lets it hold the project's
+   registry and conversation state in memory the way an interactive
+   session should, instead of re-reading every subject's transcript and
+   analysis off disk for every single instruction.
 
 Nothing here duplicates Theodore's own logic -- the panel is a thin
 window onto the same CLI and the same JSON files, which is why it needed
@@ -176,16 +201,20 @@ no changes to the `theodore` Python package at all.
 ## Extending it
 
 The Ingest tab covers `theodore run` (the full per-subject pipeline, via
-a native footage picker so no path is ever typed); the rest of the tabs
-(Segments, Dupes, Gaps, Delivery, Find, Learn, Versions, Say/Pending)
-cover every other CLI command an editor reaches for repeatedly while
-cutting, except `multicam`. Every quick-action tab follows the same
-shape: `bindRunButton()` in `js/renderer.js` builds an argv array and
-hands it to `window.theodore.run(...)`, which round-trips to
-`theodore_bridge.js`'s `runTheodore()` -- no new bridge code needed for a
-new command, just a button and an argv builder. A long-running command
-instead wants `window.theodore.runStreaming(args, onOutput, onDone)`,
-modeled on the Ingest tab's `initIngestTab()`. Versions/Diff/Revert and
-Delivery/Peaks all share one output pane per tab, since they're closely
-related actions on the same underlying data; splitting that further is a
-UI call, not an architectural one.
+a native footage picker so no path is ever typed); the Chat tab covers
+`theodore chat` (a running conversation instead of one instruction at a
+time); the rest of the tabs (Segments, Dupes, Gaps, Delivery, Find, Learn,
+Versions, Say/Pending) cover every other CLI command an editor reaches
+for repeatedly while cutting, except `multicam`. Every quick-action tab
+follows the same shape: `bindRunButton()` in `js/renderer.js` builds an
+argv array and hands it to `window.theodore.run(...)`, which round-trips
+to `theodore_bridge.js`'s `runTheodore()` -- no new bridge code needed
+for a new command, just a button and an argv builder. A long-running
+one-shot command instead wants
+`window.theodore.runStreaming(args, onOutput, onDone)`, modeled on the
+Ingest tab's `initIngestTab()`; a REPL-shaped one wants
+`startChat`/`sendChat`/`onChatOutput`, modeled on the Chat tab's
+`initChatTab()`. Versions/Diff/Revert and Delivery/Peaks all share one
+output pane per tab, since they're closely related actions on the same
+underlying data; splitting that further is a UI call, not an
+architectural one.

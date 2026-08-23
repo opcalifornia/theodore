@@ -1619,7 +1619,12 @@ def chat(project: str):
             "least one subject before `theodore chat` has anything to work with."
         )
 
-    client = anthropic.Anthropic(api_key=config.require_anthropic_key())
+    # Lazy, not created up front: `pending`/`versions`/`build`/`help` never
+    # touch Claude, and a REPL that hard-fails at startup over a missing key
+    # would block them along with everything else. Deferred to the first
+    # actual instruction, and caught there rather than left to crash the
+    # whole process with a raw traceback.
+    client = None
     cost_tracker = CostTracker()
 
     click.echo(f"Theodore chat -- project '{project}', {len(subjects_segments)} subject(s) loaded.")
@@ -1666,6 +1671,13 @@ def chat(project: str):
                 click.echo(f"Error: {exc.message}")
             reg = registry.load_project(project_dir, project_name=project)  # build() may have advanced current_edit_version
             continue
+
+        if client is None:
+            try:
+                client = anthropic.Anthropic(api_key=config.require_anthropic_key())
+            except RuntimeError as exc:
+                click.echo(f"Error: {exc}")
+                continue
 
         result = commands.say(
             project_dir, reg, line, subjects_segments,

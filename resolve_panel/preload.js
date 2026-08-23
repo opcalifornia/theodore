@@ -44,4 +44,14 @@ contextBridge.exposeInMainWorld('theodore', {
       ipcRenderer.removeListener('theodore:run-done', doneListener);
     };
   },
+
+  // A running `theodore chat` conversation: one process for the whole
+  // panel, so onChatOutput/onChatExit are registered once, not per-message
+  // like runStreaming's per-call requestId (there's only ever one active
+  // chat, matching the single-project panel UI).
+  startChat: (project) => ipcRenderer.send('theodore:chatStart', project),
+  sendChat: (line) => ipcRenderer.send('theodore:chatSend', line),
+  stopChat: () => ipcRenderer.send('theodore:chatStop'),
+  onChatOutput: (callback) => ipcRenderer.on('theodore:chat-output', (_e, chunk) => callback(chunk)),
+  onChatExit: (callback) => ipcRenderer.on('theodore:chat-exit', (_e, info) => callback(info)),
 });

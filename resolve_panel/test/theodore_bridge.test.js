@@ -231,3 +231,74 @@ test('spawnTheodore rejects bad args before ever spawning a process', () => {
   assert.throws(() => bridge.spawnTheodore(config, 'not-an-array', () => {}, fakeSpawn), TypeError);
   assert.equal(spawned, false);
 });
+
+function makeFakeChatChild() {
+  const child = makeFakeChild();
+  child.stdin = { written: [], write(text) { this.written.push(text); }, ended: false, end() { this.ended = true; } };
+  child.killed = false;
+  child.kill = function () { this.killed = true; };
+  return child;
+}
+
+test('startChat spawns `chat --project X` and streams both stdout and stderr via onChunk', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChatChild();
+  let captured = null;
+  const fakeSpawn = (cmd, args, opts) => { captured = { cmd, args, opts }; return child; };
+  const chunks = [];
+  bridge.startChat(config, 'docproj', (c) => chunks.push(c), () => {}, fakeSpawn);
+
+  assert.equal(captured.cmd, '/usr/bin/theodore-fake');
+  assert.deepEqual(captured.args, ['chat', '--project', 'docproj']);
+  assert.equal(captured.opts.env.THEODORE_DATA_DIR, dataDir);
+
+  child.stdout.emit('data', Buffer.from("Theodore chat -- project 'docproj', 1 subject(s) loaded.\ntheodore> "));
+  assert.deepEqual(chunks, [
+    { stream: 'stdout', text: "Theodore chat -- project 'docproj', 1 subject(s) loaded.\ntheodore> " },
+  ]);
+});
+
+test('startChat.send() writes the line plus a newline to the child\'s stdin', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChatChild();
+  const session = bridge.startChat(config, 'docproj', () => {}, () => {}, () => child);
+
+  session.send('move haylee.q03 after marcus.q04');
+
+  assert.deepEqual(child.stdin.written, ['move haylee.q03 after marcus.q04\n']);
+});
+
+test('startChat.stop() ends stdin and kills the child', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChatChild();
+  const session = bridge.startChat(config, 'docproj', () => {}, () => {}, () => child);
+
+  session.stop();
+
+  assert.equal(child.stdin.ended, true);
+  assert.equal(child.killed, true);
+});
+
+test('startChat calls onExit with the exit code when the REPL process closes', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  const child = makeFakeChatChild();
+  let exitInfo = null;
+  bridge.startChat(config, 'docproj', () => {}, (info) => { exitInfo = info; }, () => child);
+
+  child.emit('close', 0);
+
+  assert.deepEqual(exitInfo, { code: 0 });
+});
+
+test('startChat rejects a missing/blank project name before ever spawning', () => {
+  const dataDir = makeTempDataDir();
+  const config = { theodoreDataDir: dataDir, theodoreExecutable: '/usr/bin/theodore-fake' };
+  let spawned = false;
+  const fakeSpawn = () => { spawned = true; return makeFakeChatChild(); };
+  assert.throws(() => bridge.startChat(config, '', () => {}, () => {}, fakeSpawn), TypeError);
+  assert.equal(spawned, false);
+});

@@ -23,6 +23,7 @@
 
   <nav id="tabs">
     <button class="tab-btn active" data-tab="ingest">Ingest</button>
+    <button class="tab-btn" data-tab="chat">Chat</button>
     <button class="tab-btn" data-tab="segments">Segments</button>
     <button class="tab-btn" data-tab="dupes">Dupes</button>
     <button class="tab-btn" data-tab="gaps">Gaps</button>
@@ -53,6 +54,17 @@
         <button id="run-ingest-btn">Run Theodore</button>
       </div>
       <pre id="ingest-output" class="console"></pre>
+    </section>
+
+    <section id="tab-chat" class="tab-panel">
+      <p class="hint">Talk to Theodore about this project's edit: queue moves, ask what's pending, or type
+        "build &lt;subject&gt;" to confirm it -- the same Claude-backed engine as Say/Pending, held in one running
+        conversation instead of one command at a time. Type "help" for the full list.</p>
+      <div id="chat-log" class="console chat-log"></div>
+      <div id="chat-row">
+        <input id="chat-input" type="text" placeholder='e.g. move haylee.q03 after marcus.q04'>
+        <button id="chat-send-btn">Send</button>
+      </div>
     </section>
 
     <section id="tab-segments" class="tab-panel">

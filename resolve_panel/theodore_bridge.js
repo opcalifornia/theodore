@@ -168,6 +168,38 @@ function spawnTheodore(config, args, onChunk, spawnImpl) {
   });
 }
 
+// A conversational counterpart to spawnTheodore(): `theodore chat` is a
+// long-lived REPL that holds a project's registry in memory across many
+// instructions instead of re-reading every subject's transcript/analysis
+// off disk per command the way a one-shot `theodore say` does. Rather than
+// reinvent that in the panel, this just drives the real REPL over pipes --
+// one child process per open chat, fed one line per send(), read back one
+// chunk per onChunk() call. `theodore chat` uses click's prompt/echo
+// helpers, which always flush, so nothing here is buffered and stuck
+// waiting on the next line the way a naive Python subprocess call could be.
+//
+// `spawnImpl` is injected only for tests, same pattern as spawnTheodore().
+function startChat(config, project, onChunk, onExit, spawnImpl) {
+  config = config || loadConfig();
+  if (typeof project !== 'string' || !project) {
+    throw new TypeError('startChat requires a non-empty project name');
+  }
+  const doSpawn = spawnImpl || spawn;
+  const child = doSpawn(
+    config.theodoreExecutable,
+    ['chat', '--project', project],
+    { env: Object.assign({}, process.env, { THEODORE_DATA_DIR: config.theodoreDataDir }) },
+  );
+  child.stdout.on('data', (data) => onChunk({ stream: 'stdout', text: data.toString() }));
+  child.stderr.on('data', (data) => onChunk({ stream: 'stderr', text: data.toString() }));
+  child.on('close', (code) => onExit({ code }));
+  child.on('error', (err) => onExit({ code: 1, error: err.message }));
+  return {
+    send(line) { child.stdin.write(`${line}\n`); },
+    stop() { child.stdin.end(); child.kill(); },
+  };
+}
+
 module.exports = {
   ConfigError,
   loadConfig,
@@ -181,4 +213,5 @@ module.exports = {
   buildArgs,
   runTheodore,
   spawnTheodore,
+  startChat,
 };

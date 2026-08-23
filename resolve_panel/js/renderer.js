@@ -129,6 +129,7 @@ function switchTab(name) {
   for (const panel of document.querySelectorAll('.tab-panel')) {
     panel.classList.toggle('active', panel.id === `tab-${name}`);
   }
+  if (name === 'chat') ensureChatSession();
 }
 
 function formatRunResult(result) {
@@ -227,8 +228,52 @@ function initIngestTab() {
   });
 }
 
+// Chat tab: a running `theodore chat --project X` conversation instead of
+// one-shot `theodore say` calls, so instructions build on shared context
+// (the REPL's meta-commands: pending/versions/build/help) without
+// re-invoking the CLI per line. The child process doesn't echo what's
+// typed (it reads over a pipe, not a tty), so the user's own line is
+// appended locally before sending -- otherwise only Theodore's replies
+// would ever appear.
+let chatProject = null;
+
+function appendChat(text) {
+  const log = el('chat-log');
+  log.textContent += text;
+  log.scrollTop = log.scrollHeight;
+}
+
+function ensureChatSession() {
+  if (!state.project || chatProject === state.project) return;
+  chatProject = state.project;
+  appendChat(`\n----- switching chat to project "${state.project}" -----\n`);
+  window.theodore.startChat(state.project);
+}
+
+function initChatTab() {
+  window.theodore.onChatOutput((chunk) => appendChat(chunk.text));
+  window.theodore.onChatExit((info) => {
+    appendChat(`\n(chat session ended${info.error ? ': ' + info.error : ''})\n`);
+    chatProject = null;
+  });
+
+  const send = () => {
+    const input = el('chat-input');
+    const line = input.value.trim();
+    if (!line) return;
+    if (!state.project) { showError('Pick a project first.'); return; }
+    ensureChatSession();
+    appendChat(`> ${line}\n`);
+    window.theodore.sendChat(line);
+    input.value = '';
+  };
+  el('chat-send-btn').addEventListener('click', send);
+  el('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+}
+
 async function init() {
   initIngestTab();
+  initChatTab();
 
   el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;

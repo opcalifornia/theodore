@@ -86,6 +86,16 @@ th { color: #999; font-weight: normal; }
 #pending-list li { padding: 3px 0; border-bottom: 1px solid #2a2a2a; }
 
 .hint { color: #999; margin-top: 0; }
+
+.chat-log {
+  min-height: 340px;
+  max-height: 340px;
+  overflow-y: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+#chat-row { display: flex; gap: 8px; margin-top: 8px; }
+#chat-input { flex: 1; }
+
 #ingest-form .field-row {
   display: flex;
   gap: 12px;
