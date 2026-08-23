@@ -182,6 +182,18 @@ function initQuickActions() {
       return;
     }
 
+    if (action === 'trim-timeline') {
+      const raw = el('trim-cuts-input').value.trim();
+      if (!raw) { showError('Enter one or more cut ranges first, e.g. 86800:87000.'); return; }
+      const args = ['trim-timeline'];
+      for (const part of raw.split(',')) {
+        const range = part.trim();
+        if (range) args.push('--cut', range);
+      }
+      await runQuickAction('Trim Timeline', args);
+      return;
+    }
+
     const args = requireSubject(action);
     if (args === null) return;
     const labels = { 'timeline-status': 'Timeline Status', dupes: 'Dupes', gaps: 'Gaps', learn: 'Learn' };

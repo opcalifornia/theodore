@@ -1572,3 +1572,326 @@ def format_timeline_matches(matches: list[TimelineSourceMatch]) -> str:
             f"[{m.timeline_start_frame} - {m.timeline_end_frame}]  <- {m.source_path}"
         )
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Trimming an EXISTING, editor-built timeline in place -- removing frame
+# ranges (dead air, a cut sentence) and rippling everything else together
+# to close the gap, the way Resolve's own "Ripple Delete" tool does.
+#
+# DaVinci Resolve's scripting API has no way to blade/split a clip at an
+# arbitrary frame at all (confirmed against Blackmagic's own documented API
+# surface -- every third-party Resolve plugin hits this same wall, not just
+# Theodore). Timeline.DeleteClips() only removes WHOLE TimelineItems, so a
+# cut range landing in the middle of an existing clip can't be carved out
+# by deleting anything.
+#
+# The only way to get the same end result: duplicate the timeline (so the
+# original is never at risk, even if something below fails), clear every
+# track, and re-append -- per track -- only the SURVIVING sub-ranges of each
+# original clip, each still pointing at its own original media pool item.
+# Appending with no explicit recordFrame is what closes the gaps: Resolve
+# places each new clip immediately after the last one already on that
+# track, same as build_timeline() above relies on for a from-scratch build.
+# --------------------------------------------------------------------------
+
+@dataclass
+class TrimResult:
+    """What trim_timeline_ranges() actually did. ``timeline`` is the live
+    Resolve Timeline object for the new, trimmed timeline (None for a trim
+    that failed before creating it). ``original_timeline_name`` is never
+    modified by this function, whatever the outcome -- see the module-level
+    note above for why duplicate-and-rebuild is the only safe approach."""
+
+    timeline_name: str
+    original_timeline_name: str
+    timeline: object = None
+    cut_ranges: list = field(default_factory=list)
+    original_clip_count: int = 0
+    new_clip_count: int = 0
+    frames_removed: int = 0
+    fps: str = ""
+    warnings: list = field(default_factory=list)
+
+    def warn(self, message: str, *args) -> None:
+        formatted = message % args if args else message
+        self.warnings.append(formatted)
+        logger.warning(formatted)
+
+
+def _merge_cut_ranges(cut_ranges) -> list[tuple[int, int]]:
+    """Normalize arbitrary, possibly-overlapping, possibly-unordered
+    [start, end) pairs into sorted, non-overlapping ones. Raises ValueError
+    on a malformed range rather than silently dropping part of what the
+    caller asked to cut."""
+    cleaned = []
+    for start, end in cut_ranges:
+        start, end = int(start), int(end)
+        if end <= start:
+            raise ValueError(f"Invalid cut range [{start}, {end}) -- end must be after start.")
+        cleaned.append((start, end))
+    cleaned.sort()
+    merged: list[list[int]] = []
+    for start, end in cleaned:
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(s, e) for s, e in merged]
+
+
+def _kept_subranges(item_start: int, item_end: int, cut_ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """The portions of [item_start, item_end) not covered by any cut range.
+    `cut_ranges` must already be sorted and non-overlapping (see
+    _merge_cut_ranges). A cut range landing in the middle of the item
+    splits it into two kept pieces; one covering the whole item returns
+    none at all."""
+    kept = []
+    cursor = item_start
+    for cut_start, cut_end in cut_ranges:
+        if cut_end <= cursor:
+            continue
+        if cut_start >= item_end:
+            break
+        if cut_start > cursor:
+            kept.append((cursor, min(cut_start, item_end)))
+        cursor = max(cursor, cut_end)
+        if cursor >= item_end:
+            break
+    if cursor < item_end:
+        kept.append((cursor, item_end))
+    return kept
+
+
+@dataclass
+class _CapturedItem:
+    """One original TimelineItem's placement, snapshotted before anything
+    is deleted -- everything trim_timeline_ranges() needs to decide what
+    survives and where to put it back."""
+    track_type: str
+    track_index: int
+    start: int
+    end: int
+    media_pool_item: object
+    source_start_frame: int
+
+
+def _capture_timeline_items(timeline) -> list[_CapturedItem]:
+    captured = []
+    for track_type, track_index, item in _iter_timeline_items(timeline):
+        start = _call(item, "GetStart")
+        end = _call(item, "GetEnd")
+        source_start = _call(item, "GetSourceStartFrame")
+        media_item = _call(item, "GetMediaPoolItem")
+        if start is None or end is None or source_start is None or media_item is None:
+            logger.warning(
+                "Skipping a %s track %d clip with unreadable start/end/source position -- "
+                "it will not appear on the trimmed timeline.", track_type, track_index,
+            )
+            continue
+        captured.append(_CapturedItem(
+            track_type=track_type, track_index=track_index,
+            start=int(start), end=int(end),
+            media_pool_item=media_item, source_start_frame=int(source_start),
+        ))
+    captured.sort(key=lambda c: (c.track_type, c.track_index, c.start))
+    return captured
+
+
+@dataclass
+class _PlannedClip:
+    """One kept sub-range, ready to hand to AppendToTimeline."""
+    track_type: str
+    track_index: int
+    media_pool_item: object
+    start_frame: int
+    end_frame: int
+    duration: int
+
+
+def _plan_kept_clips(captured: list[_CapturedItem], ranges: list[tuple[int, int]]) -> list[_PlannedClip]:
+    """Every surviving piece of every original clip, converted from
+    TIMELINE frames into that clip's own SOURCE frames. Only one anchor is
+    needed for that conversion -- GetSourceStartFrame() -- since a clip's
+    source and timeline frames advance together 1:1 across its own span
+    (not true under speed ramping; not a case Theodore's footage hits, and
+    not something this function can detect from the API alone)."""
+    planned = []
+    for c in captured:
+        for k_start, k_end in _kept_subranges(c.start, c.end, ranges):
+            offset = k_start - c.start
+            length = k_end - k_start
+            planned.append(_PlannedClip(
+                track_type=c.track_type, track_index=c.track_index,
+                media_pool_item=c.media_pool_item,
+                start_frame=c.source_start_frame + offset,
+                end_frame=c.source_start_frame + offset + length,
+                duration=length,
+            ))
+    return planned
+
+
+def trim_timeline_ranges(
+    handles: ResolveHandles,
+    cut_ranges: list[tuple[int, int]],
+    *,
+    new_name: Optional[str] = None,
+) -> TrimResult:
+    """Build a duplicate of the CURRENTLY OPEN timeline with the given
+    ranges of TIMELINE frames removed from every track, everything else
+    rippled together to close the gap -- the original timeline is never
+    touched, whatever happens.
+
+    `cut_ranges` are half-open [start, end) pairs in the same frame
+    numbering `TimelineItem.GetStart()`/`GetEnd()` and
+    match_timeline_to_sources() already report -- may overlap or be given
+    out of order, both are normalized here. A cut range applies the same
+    way to every track, so video and audio ripple together and stay in
+    sync, exactly as they were.
+
+    Raises BuilderError if nothing survives the cuts, if any Resolve call
+    reports failure, or if what actually landed doesn't match the plan --
+    never leaves a silently wrong or partial trim reported as a success.
+    """
+    ranges = _merge_cut_ranges(cut_ranges)
+
+    original = handles.timeline
+    if original is None:
+        raise BuilderError("No current timeline on these handles -- reconnect and open a timeline first.")
+    original_name = _call(original, "GetName") or "(unnamed)"
+
+    captured = _capture_timeline_items(original)
+    if not captured:
+        raise BuilderError(f"'{original_name}' has no clips Theodore can read back -- nothing to trim.")
+
+    result = TrimResult(
+        timeline_name=new_name or f"{original_name}_trimmed_{time.strftime('%Y%m%d_%H%M%S')}",
+        original_timeline_name=original_name,
+        cut_ranges=ranges,
+        original_clip_count=len(captured),
+        frames_removed=sum(end - start for start, end in ranges),
+    )
+
+    planned = _plan_kept_clips(captured, ranges)
+    if not planned:
+        raise BuilderError(
+            f"The given cut range(s) remove everything on '{original_name}' -- nothing would be "
+            "left to build. Narrow the cut ranges."
+        )
+
+    resolve_project = handles.project
+    if resolve_project is None:
+        raise BuilderError("No Resolve project on these handles -- reconnect with resolve.connection.connect().")
+    media_pool = _call(resolve_project, "GetMediaPool")
+    if not media_pool:
+        raise BuilderError(
+            "Project.GetMediaPool() returned nothing. Theodore cannot trim a timeline without "
+            "the media pool -- try restarting Resolve with the project open."
+        )
+
+    new_timeline = _call(original, "DuplicateTimeline", result.timeline_name)
+    if not new_timeline:
+        raise BuilderError(
+            f"Timeline.DuplicateTimeline({result.timeline_name!r}) failed -- Resolve returns nothing "
+            f"when the name is already taken. '{original_name}' itself is untouched either way."
+        )
+    result.timeline = new_timeline
+    logger.info("Duplicated '%s' as '%s'", original_name, result.timeline_name)
+
+    _make_current(resolve_project, new_timeline, result)
+
+    existing = [item for _t, _i, item in _iter_timeline_items(new_timeline)]
+    if existing:
+        deleted = _call(new_timeline, "DeleteClips", existing, True)
+        if not deleted:
+            raise BuilderError(
+                f"Timeline.DeleteClips() failed while clearing the duplicate '{result.timeline_name}' "
+                f"before rebuilding it -- '{original_name}' is untouched. Delete the half-cleared "
+                "duplicate by hand and re-run."
+            )
+
+    clip_infos = [{
+        "mediaPoolItem": p.media_pool_item,
+        "startFrame": p.start_frame,
+        "endFrame": p.end_frame,
+        "trackIndex": p.track_index,
+        "mediaType": 1 if p.track_type == VIDEO_TRACK else 2,
+    } for p in planned]
+
+    appended = _call(media_pool, "AppendToTimeline", clip_infos)
+    appended_list = _as_list(appended)
+    if not appended_list:
+        raise BuilderError(
+            f"MediaPool.AppendToTimeline() rebuilt nothing onto '{result.timeline_name}' -- it is now "
+            f"empty. '{original_name}' is untouched; delete the empty duplicate and re-run."
+        )
+    if len(appended_list) != len(planned):
+        result.warn(
+            "AppendToTimeline returned %d item(s) for %d planned kept clip(s) -- verifying "
+            "against the timeline itself.", len(appended_list), len(planned),
+        )
+
+    _verify_trim(new_timeline, planned, result)
+    result.new_clip_count = len(planned)
+
+    handles.timeline = new_timeline
+    return result
+
+
+def _verify_trim(timeline, planned: list[_PlannedClip], result: TrimResult) -> None:
+    """Read the rebuilt timeline back, one track at a time, and confirm each
+    holds exactly the kept clips planned for it -- same philosophy as
+    _verify_appended(): a partially-succeeded rebuild reported as a success
+    is worse than a loud failure."""
+    by_track: dict = {}
+    for p in planned:
+        by_track.setdefault((p.track_type, p.track_index), []).append(p)
+
+    for (track_type, track_index), expected in by_track.items():
+        items = _read_track_items(timeline, track_type, track_index)
+        if items is None:
+            result.warn(
+                "Could not read %s track %d back (GetItemListInTrack unavailable) -- not verified. "
+                "Check the timeline by eye.", track_type, track_index,
+            )
+            continue
+        if len(items) != len(expected):
+            raise BuilderError(
+                f"{track_type} track {track_index} of '{result.timeline_name}' holds {len(items)} "
+                f"clip(s) where the rebuild planned {len(expected)}. The rebuild only partially "
+                f"succeeded -- delete that timeline and re-run. '{result.original_timeline_name}' "
+                "is untouched."
+            )
+        for item, plan_clip in zip(items, expected):
+            duration = _call(item, "GetDuration")
+            if duration is None:
+                continue
+            try:
+                duration = int(duration)
+            except (TypeError, ValueError):
+                continue
+            delta = duration - plan_clip.duration
+            if abs(delta) > 1:
+                raise BuilderError(
+                    f"{track_type} track {track_index} of '{result.timeline_name}': a rebuilt clip "
+                    f"is {duration} frames where {plan_clip.duration} was planned. Delete the "
+                    f"timeline and re-run. '{result.original_timeline_name}' is untouched."
+                )
+            if delta:
+                result.warn(
+                    "%s track %d: a rebuilt clip came out %+d frame vs plan -- this Resolve version "
+                    "treats AppendToTimeline's endFrame as inclusive.", track_type, track_index, delta,
+                )
+
+
+def format_trim_result(result: TrimResult) -> str:
+    """Human-readable summary of a completed trim, for CLI output."""
+    lines = [
+        f"Built '{result.timeline_name}' from '{result.original_timeline_name}'",
+        f"  cut ranges:     {len(result.cut_ranges)} ({result.frames_removed} frame(s) total)",
+        f"  clips:          {result.original_clip_count} -> {result.new_clip_count}",
+        f"  original timeline untouched: '{result.original_timeline_name}'",
+    ]
+    for warning in result.warnings:
+        lines.append(f"  WARNING:  {warning}")
+    return "\n".join(lines)

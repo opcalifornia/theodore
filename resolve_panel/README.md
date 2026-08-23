@@ -10,8 +10,10 @@ One screen, not a tab-per-command dashboard: a footage picker (a native
 file dialog, or **Ingest from Timeline** to skip picking altogether and
 ingest straight off the currently-open Resolve timeline's audio tracks),
 a row of one-click actions (Timeline Status, Segments, Dupes, Gaps, Learn,
-Find), and a single scrolling console/chat below them that every action's
-output lands in -- closer to talking to Claude directly than hunting
+Find), a Trim Timeline row (removes frame range(s) from the open timeline
+and ripples everything else together to close the gap -- the frame numbers
+come from Timeline Status), and a single scrolling console/chat below them
+that every action's output lands in -- closer to talking to Claude directly than hunting
 through a UI. Building a new timeline from scratch (`theodore build`,
 versions/diff/revert) isn't wired to a button right now, since that isn't
 the current workflow this panel is built around; the CLI commands

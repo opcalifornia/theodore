@@ -295,6 +295,10 @@ theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorte
 theodore multicam --project <name> --subject <id>      # group synced camera angles; names the multicam clip to create in Resolve
 theodore timeline-status --project <name> --subject <id>  # which clips on the CURRENTLY OPEN Resolve timeline match this subject's
                                                        # known audio/video sources -- read-only, checks nothing, changes nothing
+theodore trim-timeline --cut START:END [--cut START:END ...] [--name "..."]   # remove frame range(s) from the CURRENTLY
+                                                       # OPEN timeline and ripple everything else together to close the
+                                                       # gap -- Resolve's own Ripple Delete, driven by Theodore. Builds a
+                                                       # new, trimmed duplicate; the open timeline is never modified.
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
@@ -356,6 +360,25 @@ rounded float) and has unit tests covering 23.976, 24, 25, 29.97
 drop-frame/non-drop-frame, 30, 59.94 drop-frame/non-drop-frame, and 60,
 including the canonical "one hour of 29.97 drop-frame is frame 107892"
 sanity check.
+
+**Working on an editor's own already-synced timeline, instead of building
+one from scratch** (`assembly/builder.py`, `theodore timeline-status` /
+`theodore trim-timeline`): DaVinci Resolve's scripting API has no way to
+blade/split a clip at an arbitrary frame at all — confirmed against
+Blackmagic's own documented API surface, and true for every third-party
+Resolve plugin, not a Theodore gap. `Timeline.DeleteClips()` only removes
+whole `TimelineItem`s, so a cut landing in the middle of an existing clip
+can't be carved out by deleting anything. `trim_timeline_ranges()` gets
+the same result Resolve's own Ripple Delete produces a different way:
+duplicate the open timeline (the original is never modified, whatever
+happens), clear the duplicate, and re-append — per track — only the
+surviving sub-ranges of each original clip, still pointing at its own
+original media. Appending with no explicit `recordFrame` is what closes
+the gaps: Resolve places each piece immediately after the last one
+already on that track. `match_timeline_to_sources()` /
+`theodore timeline-status` is the read-only first step this builds on:
+confirming which clips on the live timeline are a subject's own known
+audio/video before anything is ever cut.
 
 **Marker placement is deliberately split into two steps**
 (`resolve/markers.py`): `plan_markers()` is pure and Resolve-independent —

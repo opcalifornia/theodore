@@ -69,10 +69,11 @@ class FakeFolder:
 
 
 class FakeTimelineItem:
-    def __init__(self, media_pool_item, start, duration):
+    def __init__(self, media_pool_item, start, duration, source_start=0):
         self.media_pool_item = media_pool_item
         self.start = start
         self.duration = duration
+        self.source_start = source_start
 
     def GetStart(self):
         return self.start
@@ -89,6 +90,12 @@ class FakeTimelineItem:
     def GetMediaPoolItem(self):
         return self.media_pool_item
 
+    def GetSourceStartFrame(self):
+        return self.source_start
+
+    def GetSourceEndFrame(self):
+        return self.source_start + self.duration
+
 
 class FakeAssemblyTimeline:
     """A Timeline, with tracks and markers. Same method surface as
@@ -103,6 +110,9 @@ class FakeAssemblyTimeline:
         self.tracks = {"video": {1: []}, "audio": {1: []}}
         self.add_marker_returns = True
         self.has_get_item_list = True
+        self.duplicate_timeline_returns = "ok"   # or None/False to fail
+        self.delete_clips_returns = "ok"          # or False to fail
+        self.deleted_clips = []
 
     # -- identity / settings ------------------------------------------------
     def GetName(self):
@@ -144,6 +154,28 @@ class FakeAssemblyTimeline:
         if not self.has_get_item_list:
             raise AttributeError("GetItemListInTrack")
         return list(self.tracks.get(track_type, {}).get(index, []))
+
+    # -- whole-timeline / whole-clip operations ------------------------------
+    def DuplicateTimeline(self, name=None):
+        if self.duplicate_timeline_returns != "ok":
+            return self.duplicate_timeline_returns
+        dup = FakeAssemblyTimeline(name or f"{self.name} Copy", start_frame=self._start_frame, fps_str=self._fps_str)
+        dup.tracks = {
+            track_type: {idx: list(items) for idx, items in indices.items()}
+            for track_type, indices in self.tracks.items()
+        }
+        dup.has_get_item_list = self.has_get_item_list
+        return dup
+
+    def DeleteClips(self, items, ripple=False):
+        if self.delete_clips_returns != "ok":
+            return self.delete_clips_returns
+        items = list(items)
+        self.deleted_clips.extend(items)
+        for indices in self.tracks.values():
+            for idx, clip_list in list(indices.items()):
+                indices[idx] = [c for c in clip_list if c not in items]
+        return True
 
 
 class FakeMediaPool:
@@ -225,6 +257,20 @@ class FakeMediaPool:
 
         created = []
         cursor = timeline.GetStartFrame()
+        # Per-(track_type, track_index) cursor for clipInfo entries that name
+        # an explicit trackIndex/mediaType -- trim_timeline_ranges() places
+        # video and audio independently on their OWN original tracks, unlike
+        # the legacy paired-clip path below, which always moves video+audio
+        # together on track 1 using one shared cursor.
+        track_cursors: dict = {}
+
+        def _track_cursor(track_type, index):
+            key = (track_type, index)
+            if key not in track_cursors:
+                existing = timeline.tracks.get(track_type, {}).get(index, [])
+                track_cursors[key] = existing[-1].GetEnd() if existing else timeline.GetStartFrame()
+            return track_cursors[key]
+
         for index, info in enumerate(clip_infos):
             item = info["mediaPoolItem"]
             start, end = info["startFrame"], info["endFrame"]
@@ -236,9 +282,20 @@ class FakeMediaPool:
             # Resolve will not place an edit that falls outside the media.
             if start < 0 or end > item.start + item.frames:
                 landed = False
+            if not landed:
+                continue
 
-            if landed:
-                tl_item = FakeTimelineItem(item, cursor, duration)
+            media_type = info.get("mediaType")
+            track_index = info.get("trackIndex")
+            if media_type is not None or track_index is not None:
+                track_type = "audio" if media_type == 2 else "video"
+                idx = track_index or 1
+                tl_item = FakeTimelineItem(item, _track_cursor(track_type, idx), duration, source_start=start)
+                timeline.tracks.setdefault(track_type, {}).setdefault(idx, []).append(tl_item)
+                track_cursors[(track_type, idx)] = tl_item.GetEnd()
+                created.append(tl_item)
+            else:
+                tl_item = FakeTimelineItem(item, cursor, duration, source_start=start)
                 if self.video:
                     timeline.tracks["video"][1].append(tl_item)
                 if self.audio:

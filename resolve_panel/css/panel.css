@@ -123,6 +123,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 #run-ingest-btn:hover { background: #4a3a26; }
 
 #quick-actions { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+
+#trim-row { display: flex; gap: 8px; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+#trim-cuts-input { flex: 1; }
 .action-btn {
   background: var(--accent-cool-soft);
   border-color: #2a4a47;

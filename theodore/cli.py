@@ -1323,6 +1323,40 @@ def timeline_status(project: str, subject: str):
     click.echo(assembly_builder.format_timeline_matches(matches))
 
 
+@cli.command(name="trim-timeline")
+@click.option("--cut", "cuts", multiple=True, required=True,
+              help="A frame range to remove, as START:END (half-open, in the timeline's own frame "
+                   "numbers -- the same numbers `theodore timeline-status` reports). Repeat for "
+                   "multiple ranges.")
+@click.option("--name", default=None,
+              help="Name for the new, trimmed timeline (default: '<original name>_trimmed_<timestamp>').")
+def trim_timeline(cuts: tuple, name: Optional[str]):
+    """Remove frame ranges from the CURRENTLY OPEN Resolve timeline and ripple everything else
+    together to close the gap -- what Resolve's own Ripple Delete does, driven by Theodore.
+
+    Resolve's scripting API has no way to blade/split a clip at an arbitrary frame, so this never
+    edits the open timeline directly: it duplicates it, clears the duplicate, and rebuilds every
+    track from the surviving pieces of its own original clips. The original is never modified,
+    whatever happens -- if anything goes wrong, delete the duplicate and re-run.
+    """
+    ranges = []
+    for raw in cuts:
+        parts = raw.split(":")
+        if len(parts) != 2:
+            raise click.ClickException(f"--cut {raw!r} isn't START:END (e.g. --cut 86800:87000).")
+        try:
+            ranges.append((int(parts[0]), int(parts[1])))
+        except ValueError as exc:
+            raise click.ClickException(f"--cut {raw!r} isn't START:END (e.g. --cut 86800:87000).") from exc
+
+    handles = _connect_or_die()
+    try:
+        result = assembly_builder.trim_timeline_ranges(handles, ranges, new_name=name)
+    except (assembly_builder.BuilderError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(assembly_builder.format_trim_result(result))
+
+
 @cli.command()
 @click.option("--project", required=True)
 @click.option("--subject", required=True,
