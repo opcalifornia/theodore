@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -97,6 +98,93 @@ def _require_subject_dir(project_dir: Path, reg: dict, subject: str) -> Path:
 @click.group()
 def cli():
     """Theodore -- AI post-production assistant for interview/documentary editing."""
+
+
+def _env_get(lines: list[str], key: str) -> str:
+    for line in lines:
+        if line.startswith(f"{key}="):
+            return line[len(key) + 1:].strip()
+    return ""
+
+
+def _env_set(lines: list[str], key: str, value: str) -> list[str]:
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            new_lines.append(f"{key}={value}")
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append(f"{key}={value}")
+    return new_lines
+
+
+@cli.command()
+def setup():
+    """Interactive first-time setup: writes your Anthropic/Deepgram API
+    keys into .env and checks that ffmpeg is installed.
+
+    Safe to re-run -- it never overwrites a key that's already set (so it
+    never prints one back to the screen either), and just checks
+    everything else again.
+    """
+    env_path = config.PROJECT_ROOT / ".env"
+    example_path = config.PROJECT_ROOT / ".env.example"
+
+    if not env_path.exists():
+        env_path.write_text(
+            example_path.read_text() if example_path.exists()
+            else "ANTHROPIC_API_KEY=\nDEEPGRAM_API_KEY=\n"
+        )
+        click.echo(f"Created {env_path}")
+
+    lines = env_path.read_text().splitlines()
+    changed = False
+
+    if _env_get(lines, "ANTHROPIC_API_KEY"):
+        click.echo("Anthropic API key: already set.")
+    else:
+        click.echo("\nTheodore needs an Anthropic API key for its Claude passes "
+                    "(segmenter, selects, themes, dupes, find, say, ...).")
+        click.echo("Get one at https://console.anthropic.com/ if you don't have one.")
+        key = click.prompt("Paste your Anthropic API key (blank to skip for now)",
+                            hide_input=True, default="", show_default=False)
+        if key.strip():
+            lines = _env_set(lines, "ANTHROPIC_API_KEY", key.strip())
+            changed = True
+        else:
+            click.echo("   Skipped -- Claude-powered commands won't work until this is set.")
+
+    if _env_get(lines, "DEEPGRAM_API_KEY"):
+        click.echo("Deepgram API key: already set.")
+    else:
+        click.echo("\nTheodore needs a Deepgram API key to transcribe audio.")
+        click.echo("Get one at https://console.deepgram.com/ if you don't have one.")
+        key = click.prompt("Paste your Deepgram API key (blank to skip for now)",
+                            hide_input=True, default="", show_default=False)
+        if key.strip():
+            lines = _env_set(lines, "DEEPGRAM_API_KEY", key.strip())
+            changed = True
+        else:
+            click.echo("   Skipped -- `theodore transcribe` won't work until this is set.")
+
+    if changed:
+        env_path.write_text("\n".join(lines) + "\n")
+        click.echo(f"\nSaved to {env_path}")
+
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    ffprobe_ok = shutil.which("ffprobe") is not None
+    click.echo(f"\nffmpeg on PATH:  {'yes' if ffmpeg_ok else 'NO -- install it from https://ffmpeg.org/ and make sure it is on PATH'}")
+    click.echo(f"ffprobe on PATH: {'yes' if ffprobe_ok else 'NO -- ffprobe ships with ffmpeg; check your install'}")
+
+    ready = _env_get(lines, "ANTHROPIC_API_KEY") and _env_get(lines, "DEEPGRAM_API_KEY") and ffmpeg_ok and ffprobe_ok
+    click.echo()
+    if ready:
+        click.echo("Everything's set. Try: theodore run <video file> --project <name> --subject <id>")
+    else:
+        click.echo("Not fully set up yet -- fix what's flagged above, then re-run `theodore setup`.")
 
 
 @cli.command()

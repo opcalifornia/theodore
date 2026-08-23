@@ -60,13 +60,18 @@ cd theodore
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-cp .env.example .env
-# edit .env and add ANTHROPIC_API_KEY / DEEPGRAM_API_KEY
+theodore setup   # interactive: asks for your Anthropic/Deepgram API keys and
+                 # writes them into .env, then checks ffmpeg is on PATH.
+                 # Safe to re-run -- never overwrites a key already set.
 
 ./setup.sh   # configures RESOLVE_SCRIPT_API / RESOLVE_SCRIPT_LIB / PYTHONPATH
              # for DaVinci Resolve Studio's scripting bridge, and appends
              # them to your shell profile. Open a NEW terminal afterward.
 ```
+
+(`theodore setup` is the easy way in. If you'd rather edit the file by hand:
+`cp .env.example .env` and fill in `ANTHROPIC_API_KEY` / `DEEPGRAM_API_KEY`
+yourself.)
 
 `setup.sh` detects macOS or Linux, verifies the Resolve scripting paths
 actually exist (which also catches "you installed the free edition, not
@@ -238,6 +243,8 @@ interleaving every subject's activity chronologically.
 ## CLI reference
 
 ```
+theodore setup   # interactive .env / API key setup -- run this first
+
 # v1 -- ingest through markers/notes
 theodore ingest <file|dir> --project <name> --subject <id> [--display-name <name>]
 theodore transcribe --project <name> --subject <id> [--interviewer <speaker_id>] [--force]
