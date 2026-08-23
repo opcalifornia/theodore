@@ -218,24 +218,48 @@ def ingest(source: Path, project: str, subject: str, display_name: Optional[str]
     if not files:
         raise click.ClickException(f"No media files found at {source}")
 
+    succeeded: list[Path] = []
+    failed: list[tuple[Path, str]] = []
     for f in files:
-        with Stopwatch(f"Probing {f.name}"):
-            info = ingest_media.probe(f)
-        click.echo(f"   fps={info.fps}  duration={info.duration_seconds:.1f}s  start_tc={info.start_timecode}")
+        try:
+            with Stopwatch(f"Probing {f.name}"):
+                info = ingest_media.probe(f)
+            click.echo(f"   fps={info.fps}  duration={info.duration_seconds:.1f}s  start_tc={info.start_timecode}")
 
-        with Stopwatch(f"Extracting audio from {f.name}"):
-            wav_path = ingest_audio.extract_wav(f, subj_dir / "audio")
-        click.echo(f"   -> {wav_path}")
+            with Stopwatch(f"Extracting audio from {f.name}"):
+                wav_path = ingest_audio.extract_wav(f, subj_dir / "audio")
+            click.echo(f"   -> {wav_path}")
+        except (ingest_media.MediaProbeError, ingest_audio.AudioExtractionError) as exc:
+            # One unreadable file (a codec ffprobe can't parse, a corrupt
+            # transfer) must not throw away every file already ingested
+            # before it, or skip every file still queued after it -- a
+            # multi-hour batch failing over one bad clip is worse than the
+            # bad clip itself. Reported clearly, both here and in the
+            # summary, rather than silently dropped.
+            click.echo(f"   SKIPPED -- {exc}")
+            failed.append((f, str(exc)))
+            continue
 
         info.audio_hash = wav_path.stem
         ingest_media.save_media_info(info, subj_dir)
+        succeeded.append(f)
+
+    if not succeeded:
+        raise click.ClickException(
+            f"None of the {len(files)} file(s) found at {source} could be ingested -- see the "
+            "SKIPPED reasons above."
+        )
 
     source_files = set(reg["subjects"][subject].get("source_files", []))
-    source_files.update(f.name for f in files)
+    source_files.update(f.name for f in succeeded)
     reg["subjects"][subject]["source_files"] = sorted(source_files)
     registry.save_project(project_dir, reg)
 
-    click.echo(f"\nIngested {len(files)} file(s) for subject '{subject}' in project '{project}'.")
+    click.echo(f"\nIngested {len(succeeded)} of {len(files)} file(s) for subject '{subject}' in project '{project}'.")
+    if failed:
+        click.echo(f"\n{len(failed)} file(s) skipped -- fix these and re-run `theodore ingest` on them if needed:")
+        for f, reason in failed:
+            click.echo(f"  - {f.name}: {reason}")
 
 
 def _prompt_speaker_names(transcript: dict) -> dict:
