@@ -114,6 +114,19 @@ detected, showing you their first ~30 words as a sample (e.g. `Speaker 0` →
 hints which speaker is asking questions, which meaningfully improves the
 segmenter's accuracy.
 
+If `ingest` picked up more than one audio file for a subject (a lav/boom
+recorder stopped and restarted through a session, the normal case for an
+external recorder rather than one continuous camera file), `transcribe`
+sends every file to Deepgram and merges the results into one continuous
+transcript, in the order the files were actually recorded (by original
+filename, not the content-hash the extracted audio is stored under) --
+not just the first file found. Deepgram's speaker labels are assumed
+consistent across files (its "Speaker 0" in take 3 is the same real
+person as "Speaker 0" in take 1) since Deepgram diarizes each file
+independently with no cross-file voice matching; the speaker-naming
+sample draws from wherever that speaker id appears, so a swapped speaker
+across takes would show up as an odd-looking sample worth double-checking.
+
 Every stage caches its expensive work — re-running `theodore transcribe` on
 the same audio never re-bills Deepgram, and each `analyze` sub-pass
 (segmenter/selects/themes) is independently re-runnable. Segment ids are

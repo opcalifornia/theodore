@@ -161,6 +161,105 @@ def normalize(raw: dict, source_file: str, fps: str, start_timecode: str) -> dic
     }
 
 
+def _offset_utterance(u: dict, offset: float, source_index: int) -> dict:
+    """A copy of `u` with its own and its words' start/end shifted by
+    `offset` seconds, plus source_index/source_start/source_end recording
+    where it really came from. Words are offset too, not just the
+    utterance -- trim.py resolves sentence boundaries from word-level
+    timestamps, and a merged utterance whose words still carried their
+    original per-file times would silently desync the moment anything
+    downstream trims mid-utterance."""
+    return {
+        **u,
+        "start": u["start"] + offset,
+        "end": u["end"] + offset,
+        "source_index": source_index,
+        "source_start": u["start"],
+        "source_end": u["end"],
+        "words": [{**w, "start": w["start"] + offset, "end": w["end"] + offset} for w in u.get("words", [])],
+    }
+
+
+def merge_normalized_transcripts(entries: list[tuple[dict, float]]) -> dict:
+    """Merge several single-file normalize()d transcripts, in the given
+    order, into one continuous transcript spanning all of them -- for a
+    subject whose audio was recorded across multiple separate files (an
+    external recorder stopped and restarted through a session, the normal
+    case for a lav/boom mic rather than one continuous camera file).
+
+    `entries` is `[(transcript, duration_seconds), ...]`, already in the
+    order the files were actually recorded -- this function trusts that
+    order rather than re-deriving it.
+
+    Each file's utterance start/end (seconds relative to THAT file) is
+    offset by the cumulative duration of every file before it, so the
+    merged utterance list reads as one continuous conversation -- exactly
+    what analyze/segmenter.py needs, since it works purely off utterance
+    start/end/text with no notion of "file" at all. Every utterance also
+    keeps source_index/source_start/source_end: its original file and
+    un-offset local time, since anything that eventually places a clip on
+    a real timeline needs the real file and real local offset, not the
+    virtual merged one -- deliberately not resolved here.
+
+    Speaker ids are assumed consistent across files: Deepgram's "Speaker
+    0"/"Speaker 1" labels for file N are treated as the same real people
+    as "Speaker 0"/"Speaker 1" in file N+1. Deepgram diarizes each file
+    independently with no cross-file voice matching, so this is the only
+    practical default without building real cross-recording speaker
+    identification -- true for the ordinary case of one consistent
+    interviewer/interviewee pair recorded on the same setup throughout a
+    session. `_prompt_speaker_names()` shows a text sample per speaker so
+    a human catches it if that assumption is ever wrong for a subject.
+    """
+    if not entries:
+        raise ValueError("merge_normalized_transcripts requires at least one (transcript, duration) entry")
+
+    first = entries[0][0]
+
+    if len(entries) == 1:
+        # Not just an optimization: keeps the single-file case's on-disk
+        # shape exactly what it always was (plus the new "sources" field),
+        # so nothing already relying on transcript["source_file"]/["fps"]
+        # for a single-source subject needs to change to keep working.
+        transcript, duration = entries[0]
+        return {
+            **transcript,
+            "sources": [{
+                "path": transcript["source_file"], "fps": transcript["fps"],
+                "start_timecode": transcript["start_timecode"], "duration_seconds": duration,
+            }],
+            "utterances": [_offset_utterance(u, 0.0, 0) for u in transcript["utterances"]],
+        }
+
+    sources: list[dict] = []
+    speakers: dict[str, str] = {}
+    utterances: list[dict] = []
+    offset = 0.0
+    next_id = 1
+    for source_index, (transcript, duration) in enumerate(entries):
+        sources.append({
+            "path": transcript["source_file"], "fps": transcript["fps"],
+            "start_timecode": transcript["start_timecode"], "duration_seconds": duration,
+        })
+        for speaker_id, name in transcript["speakers"].items():
+            speakers.setdefault(speaker_id, name)
+        for u in transcript["utterances"]:
+            merged = _offset_utterance(u, offset, source_index)
+            merged["id"] = f"u{next_id:03d}"
+            utterances.append(merged)
+            next_id += 1
+        offset += duration
+
+    return {
+        "source_file": first["source_file"],
+        "sources": sources,
+        "fps": first["fps"],
+        "start_timecode": first["start_timecode"],
+        "speakers": speakers,
+        "utterances": utterances,
+    }
+
+
 def apply_speaker_names(transcript: dict, names: dict) -> dict:
     transcript["speakers"] = {k: names.get(k, v) for k, v in transcript["speakers"].items()}
     return transcript

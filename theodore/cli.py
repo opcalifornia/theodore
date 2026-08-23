@@ -284,30 +284,44 @@ def _prompt_speaker_names(transcript: dict) -> dict:
 @click.option("--interviewer", default=None, help="Speaker id to hint as the interviewer (e.g. '1').")
 @click.option("--force", is_flag=True, help="Re-transcribe even if a cached transcript exists.")
 def transcribe(project: str, subject: str, interviewer: Optional[str], force: bool):
-    """Transcribe one subject's ingested audio with Deepgram Nova-3 and name speakers."""
+    """Transcribe ALL of one subject's ingested audio with Deepgram Nova-3,
+    merged into one continuous transcript, and name speakers."""
     project_dir, reg = _load_registry(project)
     _setup_logging(project_dir)
     subj_dir = _require_subject_dir(project_dir, reg, subject)
 
     media_list = ingest_media.load_media_info(subj_dir)
     media_by_hash = {m["audio_hash"]: m for m in media_list if m.get("audio_hash")}
-    wavs = sorted((subj_dir / "audio").glob("*.wav"))
+    wavs = list((subj_dir / "audio").glob("*.wav"))
     if not wavs:
         raise click.ClickException(f"No extracted audio found for subject '{subject}' -- run `theodore ingest` first.")
+
+    # Ordered by the ORIGINAL source file's name, not the content-hash the
+    # extracted wav is named after -- a hash sorts arbitrarily, but a
+    # recorder's sequential filenames (take 1, take 2, ...) sort
+    # chronologically, which is what turns separate files back into one
+    # continuous conversation in the right order.
+    def _original_name(wav_path: Path) -> str:
+        media = media_by_hash.get(wav_path.stem)
+        return Path(media["path"]).name if media else wav_path.name
+    wavs.sort(key=_original_name)
+
     if len(wavs) > 1:
-        click.echo(
-            f"NOTE: {len(wavs)} audio files ingested for '{subject}'; v1 transcribes and "
-            "analyzes the first one as the primary interview."
-        )
+        click.echo(f"Transcribing {len(wavs)} audio files for '{subject}', in this order:")
+        for w in wavs:
+            click.echo(f"  - {_original_name(w)}")
 
-    wav_path = wavs[0]
-    media = media_by_hash.get(wav_path.stem) or (media_list[0] if media_list else None)
-    if media is None:
-        raise click.ClickException("No media metadata found -- run `theodore ingest` first.")
+    entries: list[tuple[dict, float]] = []
+    for wav_path in wavs:
+        media = media_by_hash.get(wav_path.stem) or (media_list[0] if media_list else None)
+        if media is None:
+            raise click.ClickException("No media metadata found -- run `theodore ingest` first.")
+        with Stopwatch(f"Transcribing {_original_name(wav_path)} with Deepgram Nova-3"):
+            raw = dg.transcribe_audio(wav_path, subj_dir, force=force)
+        one = dg.normalize(raw, media["path"], media["fps"], media["start_timecode"])
+        entries.append((one, media.get("duration_seconds", 0.0)))
 
-    with Stopwatch(f"Transcribing {wav_path.name} with Deepgram Nova-3"):
-        raw = dg.transcribe_audio(wav_path, subj_dir, force=force)
-    transcript = dg.normalize(raw, media["path"], media["fps"], media["start_timecode"])
+    transcript = dg.merge_normalized_transcripts(entries)
 
     speakers_path = subj_dir / "speakers.json"
     if speakers_path.exists():
