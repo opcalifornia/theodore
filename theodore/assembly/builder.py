@@ -1439,3 +1439,88 @@ def format_result(result: BuildResult) -> str:
     for warning in result.warnings:
         lines.append(f"  WARNING:  {warning}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Reading an EXISTING, editor-built timeline -- the first step toward
+# trimming a timeline the editor already assembled (their own synced
+# camera angles + external audio) instead of build_timeline() creating a
+# new one from scratch. Read-only: nothing here writes to Resolve.
+# --------------------------------------------------------------------------
+
+@dataclass
+class TimelineSourceMatch:
+    """One clip on an existing timeline that Theodore recognizes as one of
+    a subject's known sources (typically transcript["sources"][i]["path"])."""
+    source_path: str
+    track_type: str
+    track_index: int
+    clip_name: str
+    timeline_start_frame: int
+    timeline_end_frame: int
+
+
+def match_timeline_to_sources(timeline, known_source_paths: list[str]) -> list[TimelineSourceMatch]:
+    """Which clips on `timeline` are one of `known_source_paths` -- read-only,
+    the first step toward editing an editor's EXISTING, already-synced
+    timeline in place rather than building a new one.
+
+    Checks video track 1 and audio tracks 1 through however many
+    Timeline.GetTrackCount("audio") reports (an editor syncing external
+    audio commonly adds it as its own track via Resolve's own "Auto Sync
+    Audio -> Append Tracks", which lands on a track beyond the first).
+    Unmatched clips are not an error or even reported: the editor's
+    timeline can hold anything else -- B-roll, music, graphics -- besides
+    this subject's own synced audio/video.
+
+    A clip appearing on the timeline more than once (used twice, split by
+    a cut) produces one TimelineSourceMatch per occurrence, deliberately --
+    each is a real, separate position that later trimming needs to
+    consider on its own.
+    """
+    matches: list[TimelineSourceMatch] = []
+    known = set(known_source_paths)
+    if not known:
+        return matches
+
+    video_count = _call(timeline, "GetTrackCount", VIDEO_TRACK) or 0
+    audio_count = _call(timeline, "GetTrackCount", AUDIO_TRACK) or 0
+
+    for track_type, count in ((VIDEO_TRACK, video_count), (AUDIO_TRACK, audio_count)):
+        for track_index in range(1, int(count) + 1):
+            items = _read_track_items(timeline, track_type, track_index)
+            if not items:
+                continue
+            for item in items:
+                path = _item_file_path(_call(item, "GetMediaPoolItem") or item)
+                matched_path = next((k for k in known if _same_file(path, k)), None)
+                if matched_path is None:
+                    continue
+                start = _call(item, "GetStart")
+                end = _call(item, "GetEnd")
+                if start is None or end is None:
+                    logger.warning(
+                        "Matched %r on %s track %d but couldn't read its timeline position -- skipping",
+                        matched_path, track_type, track_index,
+                    )
+                    continue
+                matches.append(TimelineSourceMatch(
+                    source_path=matched_path, track_type=track_type, track_index=track_index,
+                    clip_name=_item_name(item) or Path(matched_path).name,
+                    timeline_start_frame=int(start), timeline_end_frame=int(end),
+                ))
+
+    matches.sort(key=lambda m: m.timeline_start_frame)
+    return matches
+
+
+def format_timeline_matches(matches: list[TimelineSourceMatch]) -> str:
+    if not matches:
+        return "No clips on this timeline matched any of this subject's known source files."
+    lines = [f"{len(matches)} matching clip(s) found on the timeline:", ""]
+    for m in matches:
+        lines.append(
+            f"  {m.track_type} track {m.track_index}: {m.clip_name}  "
+            f"[{m.timeline_start_frame} - {m.timeline_end_frame}]  <- {m.source_path}"
+        )
+    return "\n".join(lines)

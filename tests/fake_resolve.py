@@ -86,6 +86,9 @@ class FakeTimelineItem:
     def GetName(self):
         return self.media_pool_item.GetName()
 
+    def GetMediaPoolItem(self):
+        return self.media_pool_item
+
 
 class FakeAssemblyTimeline:
     """A Timeline, with tracks and markers. Same method surface as

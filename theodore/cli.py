@@ -1253,6 +1253,45 @@ def multicam(project: str, subject: str, check_resolve: bool):
         )
 
 
+@cli.command(name="timeline-status")
+@click.option("--project", required=True)
+@click.option("--subject", required=True)
+def timeline_status(project: str, subject: str):
+    """Show which clips on the CURRENTLY OPEN Resolve timeline match this
+    subject's known (transcribed) audio/video sources.
+
+    Read-only -- checks nothing, changes nothing. This is the first step
+    toward Theodore trimming an editor's existing, already-synced timeline
+    (their own camera angles + external audio) in place, rather than
+    building a new one from scratch: confirming the match is correct
+    before anything is ever built on top of it.
+    """
+    project_dir, reg = _load_registry(project)
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+
+    transcript_path = subj_dir / "transcript.json"
+    if not transcript_path.exists():
+        raise click.ClickException(f"No transcript for '{subject}' -- run `theodore transcribe` first.")
+    transcript = json.loads(transcript_path.read_text())
+
+    sources = transcript.get("sources")
+    if not sources:
+        # A transcript.json saved before multi-file merging existed --
+        # sources wasn't written yet, but source_file still identifies the
+        # one file that was transcribed.
+        sources = [{"path": transcript.get("source_file")}] if transcript.get("source_file") else []
+    known_paths = [s["path"] for s in sources if s.get("path")]
+    if not known_paths:
+        raise click.ClickException(f"'{subject}'s transcript has no known source file paths to match against.")
+
+    handles = _connect_or_die()
+    matches = assembly_builder.match_timeline_to_sources(handles.timeline, known_paths)
+
+    click.echo(f"Timeline: {handles.timeline.GetName()}")
+    click.echo(f"Checked against {len(known_paths)} known source file(s) for '{subject}'.\n")
+    click.echo(assembly_builder.format_timeline_matches(matches))
+
+
 @cli.command()
 @click.option("--project", required=True)
 @click.option("--subject", required=True,

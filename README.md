@@ -287,6 +287,8 @@ theodore review --project <name> --subject <id> [--mode ...] [--exclude ids]   #
 theodore captions --project <name> --subject <id> [--srt] [--vtt] [--import-to-resolve]
 theodore quotes --project <name> --subject <id>        # pull-quote sheet, sorted by strength
 theodore multicam --project <name> --subject <id>      # group synced camera angles; names the multicam clip to create in Resolve
+theodore timeline-status --project <name> --subject <id>  # which clips on the CURRENTLY OPEN Resolve timeline match this subject's
+                                                       # known audio/video sources -- read-only, checks nothing, changes nothing
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
