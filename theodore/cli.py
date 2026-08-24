@@ -107,6 +107,32 @@ def _require_subject_dir(project_dir: Path, reg: dict, subject: str) -> Path:
     return registry.subject_dir(project_dir, subject)
 
 
+def _find_subject_on_timeline(project_dir: Path, reg: dict, timeline) -> Optional[str]:
+    """Which registered subject's known audio is actually on `timeline`, by
+    checking each subject's transcript["sources"] against what's really
+    placed there -- lets a caller that has no natural way to pick a subject
+    (a DaVinci Resolve Scripts-menu entry, run with no arguments at all)
+    work from just "whatever is open right now". Returns None if no
+    subject's audio is on the timeline, or more than one is (ambiguous is
+    not a guess this makes)."""
+    timeline_paths = set(assembly_builder.list_timeline_audio_paths(timeline))
+    if not timeline_paths:
+        return None
+    found = []
+    for subject_id in reg.get("subjects", {}):
+        transcript_path = registry.subject_dir(project_dir, subject_id) / "transcript.json"
+        if not transcript_path.exists():
+            continue
+        transcript = json.loads(transcript_path.read_text())
+        sources = transcript.get("sources") or (
+            [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+        )
+        known = {s["path"] for s in sources if s.get("path")}
+        if known & timeline_paths:
+            found.append(subject_id)
+    return found[0] if len(found) == 1 else None
+
+
 @click.group()
 def cli():
     """Theodore -- AI post-production assistant for interview/documentary editing."""
@@ -1353,6 +1379,75 @@ def trim_timeline(cuts: tuple, name: Optional[str]):
     try:
         result = assembly_builder.trim_timeline_ranges(handles, ranges, new_name=name)
     except (assembly_builder.BuilderError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(assembly_builder.format_trim_result(result))
+
+
+@cli.command(name="remove-silence")
+@click.option("--project", required=True)
+@click.option("--subject", default=None,
+              help="Which subject's transcribed audio to use. Omit to auto-detect from whatever is "
+                   "actually on the CURRENTLY OPEN Resolve timeline -- works as long as exactly one "
+                   "registered subject's known audio is placed there.")
+@click.option("--silence-threshold", type=float, default=config.DEFAULT_SILENCE_THRESHOLD_SECONDS,
+              help="Minimum gap, in seconds, counted as dead air.")
+@click.option("--aggressive", is_flag=True, help="Also cut interior filler words (um, uh, like), not just silence.")
+@click.option("--dry-run", is_flag=True, help="Show what would be cut without touching Resolve.")
+@click.option("--name", default=None, help="Name for the new, trimmed timeline.")
+def remove_silence(project: str, subject: Optional[str], silence_threshold: float, aggressive: bool, dry_run: bool, name: Optional[str]):
+    """Detect dead air in this subject's transcribed audio and remove it from the CURRENTLY OPEN
+    Resolve timeline, rippling everything else together -- silence removal, built on Theodore's own
+    transcript (assembly.trim's word-level dead-air detection) instead of a fresh waveform pass.
+
+    Never modifies the open timeline: builds a new, trimmed duplicate, same as `theodore trim-timeline`
+    (which this uses under the hood, with the cut ranges figured out automatically instead of typed in).
+    """
+    project_dir, reg = _load_registry(project)
+
+    handles = _connect_or_die()
+    if subject is None:
+        subject = _find_subject_on_timeline(project_dir, reg, handles.timeline)
+        if subject is None:
+            raise click.ClickException(
+                "Couldn't tell which subject this is from the open timeline -- pass --subject "
+                "explicitly, or run `theodore timeline-status --subject <id>` to check the match."
+            )
+        click.echo(f"Auto-detected subject '{subject}' from the open timeline.")
+
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+
+    trims = assembly_trim.compute_trims(
+        analysis, transcript, silence_threshold=silence_threshold, aggressive=aggressive,
+    )
+    total_cuts = sum(len(t.get("cuts", [])) for t in trims.values())
+    if total_cuts == 0:
+        click.echo(f"No dead air found above the {silence_threshold}s threshold -- nothing to cut.")
+        return
+
+    try:
+        cut_ranges, warnings = assembly_builder.dead_air_timeline_cut_ranges(handles, transcript, trims)
+    except assembly_builder.BuilderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for w in warnings:
+        click.echo(f"   WARNING: {w}")
+    if not cut_ranges:
+        raise click.ClickException(
+            "Found dead air in the transcript, but none of it could be matched to a clip on the "
+            "current timeline -- run `theodore timeline-status` to check the match."
+        )
+
+    click.echo(f"Found {len(cut_ranges)} dead-air range(s) on the timeline.")
+    if dry_run:
+        for start, end in cut_ranges:
+            click.echo(f"   [{start} - {end}]  ({end - start} frame(s))")
+        click.echo("\n(dry run -- nothing built. Drop --dry-run to actually cut.)")
+        return
+
+    try:
+        result = assembly_builder.trim_timeline_ranges(handles, cut_ranges, new_name=name)
+    except assembly_builder.BuilderError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(assembly_builder.format_trim_result(result))
 

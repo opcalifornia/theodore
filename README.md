@@ -299,6 +299,11 @@ theodore trim-timeline --cut START:END [--cut START:END ...] [--name "..."]   # 
                                                        # OPEN timeline and ripple everything else together to close the
                                                        # gap -- Resolve's own Ripple Delete, driven by Theodore. Builds a
                                                        # new, trimmed duplicate; the open timeline is never modified.
+theodore remove-silence --project <name> [--subject <id>] [--silence-threshold SECS] [--aggressive] [--dry-run]
+                                                       # detect dead air in the subject's transcript and remove it from
+                                                       # the CURRENTLY OPEN timeline via trim-timeline, with the cut
+                                                       # ranges figured out automatically. --subject is optional --
+                                                       # auto-detected from whatever's actually on the open timeline.
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
@@ -419,6 +424,15 @@ installed and no display, so its data/command bridge has a real
 connection are unverified until run on a machine with Resolve Studio —
 see `resolve_panel/README.md` for exactly what's tested versus what still
 needs a first real run, and setup instructions.
+
+`resolve_scripts/` is the other, more native integration point: a
+DaVinci Resolve **Workspace -> Scripts** menu entry (`Remove Silence.py`),
+not a Workflow Integration Plugin -- Resolve runs it directly with
+`resolve` pre-injected as a global, no separate Electron window or manual
+connection step. It runs the exact same `theodore remove-silence` code
+path the CLI and the panel's own button use; see `resolve_scripts/README.md`
+for setup and exactly what's tested versus what still needs a first real
+run.
 
 ## Future phases
 

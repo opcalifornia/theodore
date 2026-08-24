@@ -1458,6 +1458,7 @@ class TimelineSourceMatch:
     clip_name: str
     timeline_start_frame: int
     timeline_end_frame: int
+    source_start_frame: Optional[int] = None
 
 
 def match_timeline_to_sources(timeline, known_source_paths: list[str]) -> list[TimelineSourceMatch]:
@@ -1496,10 +1497,12 @@ def match_timeline_to_sources(timeline, known_source_paths: list[str]) -> list[T
                 matched_path, track_type, track_index,
             )
             continue
+        source_start = _call(item, "GetSourceStartFrame")
         matches.append(TimelineSourceMatch(
             source_path=matched_path, track_type=track_type, track_index=track_index,
             clip_name=_item_name(item) or Path(matched_path).name,
             timeline_start_frame=int(start), timeline_end_frame=int(end),
+            source_start_frame=int(source_start) if source_start is not None else None,
         ))
 
     matches.sort(key=lambda m: m.timeline_start_frame)
@@ -1895,3 +1898,124 @@ def format_trim_result(result: TrimResult) -> str:
     for warning in result.warnings:
         lines.append(f"  WARNING:  {warning}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Automatic silence removal -- dead air trim.py already detects from
+# transcript.json's word-level timestamps, converted into TIMELINE frame
+# ranges on the editor's own open timeline and handed to
+# trim_timeline_ranges(). The FireCut-style "one click, listen to the
+# result" tool, built on Theodore's own transcript instead of a fresh
+# waveform pass.
+# --------------------------------------------------------------------------
+
+def _cut_ranges_by_source_index(
+    transcript: dict, merged_ranges: list[tuple[float, float]],
+) -> dict[int, list[tuple[float, float]]]:
+    """Convert cut ranges given in MERGED-transcript-second space (what
+    trim.py's `cuts` are -- seconds into the single continuous conversation
+    a multi-file subject's utterances were merged into) into per-source-
+    index, FILE-RELATIVE second ranges -- splitting any range that crosses
+    an utterance boundary (and so possibly a source-file boundary) into one
+    piece per utterance it overlaps.
+
+    A transcript with no source_index/source_start (pre-dating multi-file
+    merging) defaults every utterance to source 0 with zero offset, which
+    is exactly what a single-file transcript's utterances already are.
+    """
+    by_source: dict[int, list[tuple[float, float]]] = {}
+    for start, end in merged_ranges:
+        for u in transcript.get("utterances", []):
+            overlap_start = max(start, u["start"])
+            overlap_end = min(end, u["end"])
+            if overlap_end <= overlap_start:
+                continue
+            offset = u["start"] - u.get("source_start", u["start"])
+            source_index = u.get("source_index", 0)
+            by_source.setdefault(source_index, []).append((overlap_start - offset, overlap_end - offset))
+    return by_source
+
+
+def dead_air_timeline_cut_ranges(
+    handles: ResolveHandles, transcript: dict, trims: dict,
+) -> tuple[list[tuple[int, int]], list[str]]:
+    """Every segment's dead-air `cuts` (trims.json / assembly.trim.compute_trims,
+    seconds relative to the merged transcript) converted into TIMELINE FRAME
+    ranges on the CURRENTLY OPEN Resolve timeline, ready for
+    trim_timeline_ranges(). Read-only -- this only computes where the cuts
+    would land; nothing is built here.
+
+    Frame math uses the TIMELINE's own frame rate
+    (Project.GetSetting("timelineFrameRate")), never transcript["fps"]: an
+    audio-only source has no fps of its own (ffprobe reports "0/1" for a
+    file with no video stream), so seconds are only ever converted to
+    frames against a real, non-zero rate -- the timeline's, which every
+    clip on it (audio included) is placed against regardless of its
+    source's own nature.
+
+    Returns `(cut_ranges, warnings)`. A cut whose source file isn't on the
+    timeline, or whose moment isn't covered by any placed clip, is not an
+    error: it's reported as a warning and simply not removed, the same
+    "unmatched isn't a failure" philosophy match_timeline_to_sources() uses.
+    """
+    merged_ranges = sorted(
+        (start, end)
+        for trim in trims.values()
+        for start, end in trim.get("cuts", [])
+    )
+    if not merged_ranges:
+        return [], []
+
+    sources = transcript.get("sources") or (
+        [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+    )
+    if not sources:
+        return [], ["This transcript has no known source file paths to match against."]
+
+    fps_raw = _call(handles.project, "GetSetting", "timelineFrameRate")
+    if not fps_raw:
+        raise BuilderError(
+            "Could not read the timeline's frame rate (Project.GetSetting('timelineFrameRate')) -- "
+            "needed to place cuts in frames. Reconnect and try again."
+        )
+    fps = tc.parse_fps(fps_raw)
+
+    known_paths = [s["path"] for s in sources if s.get("path")]
+    matches = match_timeline_to_sources(handles.timeline, known_paths)
+    matches_by_path: dict[str, list[TimelineSourceMatch]] = {}
+    for m in matches:
+        matches_by_path.setdefault(m.source_path, []).append(m)
+
+    by_source = _cut_ranges_by_source_index(transcript, merged_ranges)
+
+    cut_ranges: list[tuple[int, int]] = []
+    warnings: list[str] = []
+    for source_index, file_ranges in by_source.items():
+        if source_index >= len(sources):
+            warnings.append(
+                f"Cut(s) reference source #{source_index}, past the end of this transcript's "
+                "known sources -- skipped."
+            )
+            continue
+        path = sources[source_index].get("path")
+        candidates = [m for m in matches_by_path.get(path, []) if m.source_start_frame is not None]
+        for file_start, file_end in file_ranges:
+            placed = False
+            for m in candidates:
+                item_start_s = float(tc.frames_to_seconds(m.source_start_frame, fps))
+                item_end_s = item_start_s + float(tc.frames_to_seconds(m.timeline_end_frame - m.timeline_start_frame, fps))
+                if file_start >= item_start_s - 1e-6 and file_end <= item_end_s + 1e-6:
+                    start_frame = m.timeline_start_frame + tc.seconds_to_frames(file_start - item_start_s, fps)
+                    end_frame = m.timeline_start_frame + tc.seconds_to_frames(file_end - item_start_s, fps)
+                    if end_frame > start_frame:
+                        cut_ranges.append((start_frame, end_frame))
+                    placed = True
+                    break
+            if not placed:
+                name = Path(path).name if path else "(unknown source)"
+                warnings.append(
+                    f"A dead-air cut at {file_start:.2f}s-{file_end:.2f}s in {name} has no matching "
+                    "clip on the timeline -- not removed."
+                )
+    cut_ranges.sort()
+    return cut_ranges, warnings

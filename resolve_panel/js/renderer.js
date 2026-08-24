@@ -196,7 +196,10 @@ function initQuickActions() {
 
     const args = requireSubject(action);
     if (args === null) return;
-    const labels = { 'timeline-status': 'Timeline Status', dupes: 'Dupes', gaps: 'Gaps', learn: 'Learn' };
+    const labels = {
+      'timeline-status': 'Timeline Status', dupes: 'Dupes', gaps: 'Gaps', learn: 'Learn',
+      'remove-silence': 'Remove Silence',
+    };
     await runQuickAction(labels[action] || action, args);
   });
 }
