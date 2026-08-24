@@ -1520,6 +1520,75 @@ def caption_timeline(project: str, subject: Optional[str], silence_threshold: fl
             )
 
 
+@cli.command(name="cut-timeline")
+@click.option("--project", required=True)
+@click.option("--subject", default=None,
+              help="Which subject's answers to keep. Omit to auto-detect from whatever is "
+                   "actually on the CURRENTLY OPEN Resolve timeline.")
+@click.option("--exclude", default=None,
+              help="Comma-separated segment ids to ALSO cut entirely (e.g. a weaker retake "
+                   "`theodore dupes` flagged) -- interviewer speech, gaps, and dead air are "
+                   "always cut regardless of this.")
+@click.option("--silence-threshold", type=float, default=config.DEFAULT_SILENCE_THRESHOLD_SECONDS,
+              help="Minimum gap, in seconds, counted as dead air.")
+@click.option("--aggressive", is_flag=True, help="Also cut interior filler words (um, uh, like), not just silence.")
+@click.option("--apply", is_flag=True,
+              help="Actually build the cut. Without this, only a preview is shown -- nothing is touched.")
+@click.option("--name", default=None, help="Name for the new, trimmed timeline.")
+def cut_timeline(project: str, subject: Optional[str], exclude: Optional[str], silence_threshold: float,
+                  aggressive: bool, apply: bool, name: Optional[str]):
+    """Keep only the answers you chose, cut everything else, directly on the CURRENTLY OPEN
+    Resolve timeline: interviewer questions, gaps between segments, dead air/filler inside a
+    kept answer, and (--exclude) any specific segment you want gone too. One duplicate-and-rebuild
+    covers all of it -- the equivalent of running `remove-silence` plus a segment-exclusion pass,
+    combined into a single trim instead of two.
+
+    Shows a preview by default (what would be cut, and why) without touching Resolve; pass
+    --apply to actually build it. The original timeline is never modified either way.
+    """
+    project_dir, reg = _load_registry(project)
+
+    handles = _connect_or_die()
+    if subject is None:
+        subject = _find_subject_on_timeline(project_dir, reg, handles.timeline)
+        if subject is None:
+            raise click.ClickException(
+                "Couldn't tell which subject this is from the open timeline -- pass --subject "
+                "explicitly, or run `theodore timeline-status --subject <id>` to check the match."
+            )
+        click.echo(f"Auto-detected subject '{subject}' from the open timeline.")
+
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+    trims = assembly_trim.compute_trims(
+        analysis, transcript, silence_threshold=silence_threshold, aggressive=aggressive,
+    )
+    excluded_ids = _parse_exclude(exclude, analysis)
+
+    try:
+        plan = assembly_builder.plan_clean_cut(handles, transcript, analysis, trims, excluded_segment_ids=excluded_ids)
+    except assembly_builder.BuilderError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    fps = assembly_builder.read_timeline_fps(handles)
+    click.echo(assembly_builder.format_clean_cut_preview(plan, fps))
+
+    if not plan.all_cut_ranges:
+        click.echo("\nNothing to cut.")
+        return
+
+    if not apply:
+        click.echo("\n(preview only -- nothing built. Re-run with --apply to actually cut.)")
+        return
+
+    try:
+        result = assembly_builder.trim_timeline_ranges(handles, plan.all_cut_ranges, new_name=name)
+    except assembly_builder.BuilderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo("\n" + assembly_builder.format_trim_result(result))
+
+
 @cli.command()
 @click.option("--project", required=True)
 @click.option("--subject", required=True,

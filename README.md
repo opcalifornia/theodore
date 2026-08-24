@@ -310,6 +310,14 @@ theodore caption-timeline --project <name> [--subject <id>] [--srt] [--vtt] [--i
                                                        # remove-silence duplicate) -- not `theodore captions`, which
                                                        # times against a fresh Theodore-built assembly. --subject is
                                                        # optional, same auto-detection as remove-silence.
+theodore cut-timeline --project <name> [--subject <id>] [--exclude ids] [--silence-threshold SECS] [--aggressive] [--apply] [--name "..."]
+                                                       # keep only the answers Theodore detected, cut everything else --
+                                                       # interviewer questions, gaps between segments, dead air/filler
+                                                       # inside a kept answer, and (--exclude) any specific segment you
+                                                       # name too -- combined into ONE trim instead of separate
+                                                       # remove-silence + exclusion passes. Shows a preview (segments
+                                                       # kept/excluded, seconds by category) by default; --apply
+                                                       # actually builds it. --subject auto-detects like remove-silence.
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
@@ -398,17 +406,40 @@ time (`_cut_ranges_by_source_index` / `_source_moment_for_merged_second`),
 then to a timeline frame via a matched clip's own `GetSourceStartFrame()`
 and the timeline's real frame rate (`read_timeline_fps()`).
 
+**`theodore cut-timeline`** goes one step further: instead of naming what
+to CUT, it computes what to KEEP -- the union of every kept segment's
+trimmed answer span (`trim["trimmed_start"]`/`trimmed_end`, or the raw
+`clean_start_utterance`/`answer_start_utterance` fallback
+`assembly.plan._clip_for()` already uses when a segment has no trim) --
+then inverts that against each matched clip's own covered span on the
+timeline (`excluded_and_gap_timeline_cut_ranges()`, reusing
+`_kept_subranges()` for the inversion: pass KEEP ranges in where it
+normally takes CUT ranges, and what comes back is everything NOT kept).
+Combined with `dead_air_timeline_cut_ranges()` (kept separate only so
+`CleanCutPlan`/`format_clean_cut_preview()` can report "interviewer
+speech/gaps" and "dead air" as distinct numbers) into one
+`trim_timeline_ranges()` call, this removes interviewer questions,
+inter-segment gaps, dead air, and any `--exclude`d segment together --
+one duplicate-and-rebuild instead of running remove-silence and a
+separate exclusion pass back to back. Defaults to a preview; `--apply`
+is what actually builds it.
+
 **Working entirely inside DaVinci Resolve, no separate window at all**
 (`resolve_scripts/`): DaVinci Resolve's **Workspace -> Scripts** menu runs a
 plain Python script with `resolve`/`fusion`/`bmd` already provided as
 globals -- a real native menu entry (the same mechanism FireCut and
 similar tools use), distinct from `resolve_panel/`'s Workflow Integration
 Plugin, which is always a separate window. `resolve_scripts/Remove
-Silence.py` and `Caption Timeline.py` are thin glue over the exact same
-tested `theodore remove-silence` / `caption-timeline` CLI paths the panel
-uses: they read a small local config, work out the current project (and,
-since Resolve has no concept of Theodore's "subject", which registered
-subject's audio is actually on the open timeline), and shell out.
+Silence.py`, `Caption Timeline.py`, and `Cut Timeline.py` are thin glue
+over the exact same tested `theodore remove-silence` /
+`caption-timeline` / `cut-timeline` CLI paths the panel uses: they read a
+small local config, work out the current project (and, since Resolve has
+no concept of Theodore's "subject", which registered subject's audio is
+actually on the open timeline), and shell out. `Cut Timeline.py` is the
+one genuine two-step flow of the three -- it always previews first and
+only applies after a native macOS confirm dialog (Cancel/Apply Cut), since
+this removes far more than dead air alone and a wrong preview applied
+unseen is a much bigger mistake to walk back than a missed silence.
 
 **Marker placement is deliberately split into two steps**
 (`resolve/markers.py`): `plan_markers()` is pure and Resolve-independent —

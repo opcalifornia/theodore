@@ -2031,3 +2031,176 @@ def dead_air_timeline_cut_ranges(
                 )
     cut_ranges.sort()
     return cut_ranges, warnings
+
+
+# --------------------------------------------------------------------------
+# "Keep only the answers I chose" -- combines dead-air removal with cutting
+# interviewer questions, inter-segment gaps, and any segment named for
+# exclusion, into ONE clean-cut plan against the currently open timeline.
+# dead_air_timeline_cut_ranges() above already handles silence INSIDE a
+# kept answer; this module's job is everything OUTSIDE one.
+# --------------------------------------------------------------------------
+
+def _segment_keep_span(utterances_by_id: dict, seg: dict, sel: Optional[dict]) -> Optional[tuple[float, float]]:
+    """A segment's raw (untrimmed) kept span in merged-transcript-second
+    space -- the exact same clean_start_utterance/clean_end_utterance ->
+    answer_start_utterance/answer_end_utterance fallback chain
+    assembly.plan._clip_for() uses when a segment has no trim entry, so a
+    from-scratch build and this "work on the existing timeline" path never
+    disagree about what an untrimmed segment's bounds are."""
+    start_u = utterances_by_id.get((sel or {}).get("clean_start_utterance") or seg["answer_start_utterance"])
+    end_u = utterances_by_id.get((sel or {}).get("clean_end_utterance") or seg["answer_end_utterance"])
+    if start_u is None or end_u is None:
+        return None
+    return start_u["start"], end_u["end"]
+
+
+def excluded_and_gap_timeline_cut_ranges(
+    handles: ResolveHandles, transcript: dict, analysis: dict, trims: dict,
+    excluded_segment_ids: Optional[set] = None,
+) -> tuple[list[tuple[int, int]], list[str]]:
+    """TIMELINE FRAME ranges for everything NOT part of a KEPT segment's
+    answer at all: interviewer questions, false starts before an answer
+    begins, gaps between segments, and any segment named in
+    `excluded_segment_ids` (a redundant retake, a weak answer -- chosen by
+    a human, never picked automatically; see the module-level "clean cut"
+    docs below for why). Deliberately does NOT cut dead air/filler INSIDE
+    a kept segment's own span -- that's dead_air_timeline_cut_ranges()'s
+    job, kept separate so the two never double-count the same silence.
+
+    A segment's kept span is its trim's [trimmed_start, trimmed_end], or
+    (no trim entry) its raw clean-utterance range via _segment_keep_span --
+    same fallback assembly.plan uses for a from-scratch build.
+    """
+    excluded = excluded_segment_ids or set()
+    utterances_by_id = {u["id"]: u for u in transcript.get("utterances", [])}
+    selects_by_id = {s["segment_id"]: s for s in analysis.get("selects", [])}
+
+    keep_spans: list[tuple[float, float]] = []
+    warnings: list[str] = []
+    for seg in analysis["segments"]:
+        if seg["id"] in excluded:
+            continue
+        trim = trims.get(seg["id"])
+        if trim:
+            span = trim["trimmed_start"], trim["trimmed_end"]
+        else:
+            span = _segment_keep_span(utterances_by_id, seg, selects_by_id.get(seg["id"]))
+        if span is None:
+            continue
+        if span[1] <= span[0]:
+            warnings.append(f"Segment {seg['id']} resolves to a zero/negative-length span -- skipped.")
+            continue
+        keep_spans.append(span)
+
+    sources = transcript.get("sources") or (
+        [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+    )
+    if not sources:
+        return [], warnings + ["This transcript has no known source file paths to match against."]
+
+    fps = read_timeline_fps(handles)
+    known_paths = [s["path"] for s in sources if s.get("path")]
+    matches = match_timeline_to_sources(handles.timeline, known_paths)
+    path_to_index = {s["path"]: i for i, s in enumerate(sources) if s.get("path")}
+
+    # Reuses _cut_ranges_by_source_index to split KEEP spans by source file
+    # -- the function only does "which source, what file-relative time",
+    # it doesn't care whether what's being split is a cut or a keep.
+    keep_by_source = _cut_ranges_by_source_index(transcript, _merge_cut_ranges(keep_spans)) if keep_spans else {}
+
+    cut_ranges: list[tuple[int, int]] = []
+    for m in matches:
+        if m.source_start_frame is None:
+            continue
+        source_index = path_to_index.get(m.source_path)
+        item_start_s = float(tc.frames_to_seconds(m.source_start_frame, fps))
+        item_end_s = item_start_s + float(tc.frames_to_seconds(m.timeline_end_frame - m.timeline_start_frame, fps))
+
+        local_keeps = []
+        if source_index is not None:
+            for k0, k1 in keep_by_source.get(source_index, []):
+                lo, hi = max(k0, item_start_s), min(k1, item_end_s)
+                if hi > lo:
+                    local_keeps.append((lo, hi))
+        local_keeps.sort()
+
+        for c0, c1 in _kept_subranges(item_start_s, item_end_s, local_keeps):
+            start_frame = m.timeline_start_frame + tc.seconds_to_frames(c0 - item_start_s, fps)
+            end_frame = m.timeline_start_frame + tc.seconds_to_frames(c1 - item_start_s, fps)
+            if end_frame > start_frame:
+                cut_ranges.append((start_frame, end_frame))
+
+    cut_ranges.sort()
+    return cut_ranges, warnings
+
+
+@dataclass
+class CleanCutPlan:
+    """Everything computed for a "keep only chosen answers" cut, before
+    anything is built. `dead_air_ranges` and `gap_ranges` are kept as two
+    separate (already timeline-frame) range lists purely so a preview can
+    describe them distinctly -- silence inside an answer vs. interviewer
+    speech/gaps/excluded segments -- even though both feed the SAME
+    trim_timeline_ranges() call."""
+    kept_segment_ids: list[str]
+    excluded_segment_ids: list[str]
+    dead_air_ranges: list[tuple[int, int]] = field(default_factory=list)
+    gap_ranges: list[tuple[int, int]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def all_cut_ranges(self) -> list[tuple[int, int]]:
+        return self.dead_air_ranges + self.gap_ranges
+
+
+def plan_clean_cut(
+    handles: ResolveHandles, transcript: dict, analysis: dict, trims: dict,
+    *, excluded_segment_ids: Optional[set] = None,
+) -> CleanCutPlan:
+    """Read-only: computes the full "keep only chosen answers" cut plan
+    against the CURRENTLY OPEN timeline -- dead air/filler inside every
+    kept answer, plus interviewer speech, gaps, and any explicitly
+    excluded segment. Nothing is built here; pass `.all_cut_ranges` to
+    trim_timeline_ranges() to actually cut it.
+    """
+    excluded = set(excluded_segment_ids or set())
+    all_ids = [s["id"] for s in analysis["segments"]]
+    kept_ids = [sid for sid in all_ids if sid not in excluded]
+
+    kept_trims = {sid: t for sid, t in trims.items() if sid not in excluded}
+    dead_air_ranges, warnings_a = dead_air_timeline_cut_ranges(handles, transcript, kept_trims)
+    gap_ranges, warnings_b = excluded_and_gap_timeline_cut_ranges(
+        handles, transcript, analysis, trims, excluded_segment_ids=excluded,
+    )
+    return CleanCutPlan(
+        kept_segment_ids=kept_ids,
+        excluded_segment_ids=sorted(excluded),
+        dead_air_ranges=dead_air_ranges,
+        gap_ranges=gap_ranges,
+        warnings=warnings_a + warnings_b,
+    )
+
+
+def format_clean_cut_preview(plan: CleanCutPlan, fps) -> str:
+    """Human-readable breakdown of a CleanCutPlan, for CLI output --
+    counts and durations by category, not just a flat range list, since
+    "why is this being cut" matters as much as "what" for a pass this
+    much bigger than dead-air removal alone."""
+    def _seconds(ranges) -> float:
+        return float(sum(tc.frames_to_seconds(e - s, fps) for s, e in ranges))
+
+    lines = [f"{len(plan.kept_segment_ids)} segment(s) kept, {len(plan.excluded_segment_ids)} excluded."]
+    if plan.excluded_segment_ids:
+        lines.append(f"  excluded: {', '.join(plan.excluded_segment_ids)}")
+    lines.append(
+        f"  interviewer speech / gaps: {len(plan.gap_ranges)} range(s), {_seconds(plan.gap_ranges):.1f}s"
+    )
+    lines.append(
+        f"  dead air / filler:         {len(plan.dead_air_ranges)} range(s), {_seconds(plan.dead_air_ranges):.1f}s"
+    )
+    all_ranges = plan.all_cut_ranges
+    lines.append(f"  total to remove:           {len(all_ranges)} range(s), {_seconds(all_ranges):.1f}s")
+    for w in plan.warnings:
+        lines.append(f"  WARNING: {w}")
+    return "\n".join(lines)

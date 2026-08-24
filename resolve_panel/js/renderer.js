@@ -141,9 +141,11 @@ async function runQuickAction(label, args) {
     const result = await window.theodore.run(args);
     appendToBody(body, formatRunResult(result));
     clearError();
+    return result;
   } catch (err) {
     appendToBody(body, '(command did not run -- see error above)');
     showError(err);
+    return null;
   }
 }
 
@@ -156,7 +158,12 @@ function requireSubject(command) {
 }
 
 function initQuickActions() {
-  el('quick-actions').addEventListener('click', async (e) => {
+  // Delegated on #single-pane, not #quick-actions: the action buttons this
+  // handles now live in several sibling sections (#quick-actions, #trim-row,
+  // #cut-timeline-row), and .closest('.action-btn') already filters out
+  // every other button on the page (ingest/chat controls aren't tagged
+  // .action-btn), so binding higher is safe, not broader in effect.
+  el('single-pane').addEventListener('click', async (e) => {
     const btn = e.target.closest('.action-btn');
     if (!btn) return;
     const action = btn.dataset.action;
@@ -202,6 +209,23 @@ function initQuickActions() {
       return;
     }
 
+    // Preview and Apply are two DIFFERENT buttons, not a checkbox, so
+    // building the timeline can never happen without a preview run first
+    // in the same session -- Apply starts disabled and only re-enables
+    // right after a successful Preview (see the exclude-input listener
+    // below, which disables it again the moment that input changes).
+    if (action === 'cut-timeline-preview' || action === 'cut-timeline-apply') {
+      const args = requireSubject('cut-timeline');
+      if (args === null) return;
+      const excludeRaw = el('cut-exclude-input').value.trim();
+      if (excludeRaw) args.push('--exclude', excludeRaw);
+      const applying = action === 'cut-timeline-apply';
+      if (applying) args.push('--apply');
+      const result = await runQuickAction(applying ? 'Cut Timeline: Apply' : 'Cut Timeline: Preview', args);
+      el('cut-timeline-apply-btn').disabled = !(result && result.ok && !applying);
+      return;
+    }
+
     const args = requireSubject(action);
     if (args === null) return;
     const labels = {
@@ -209,6 +233,13 @@ function initQuickActions() {
       'remove-silence': 'Remove Silence',
     };
     await runQuickAction(labels[action] || action, args);
+  });
+
+  // Editing which segments to exclude invalidates whatever was last
+  // previewed -- re-disable Apply so it can't build a cut that no longer
+  // matches what's actually in the exclude field.
+  el('cut-exclude-input').addEventListener('input', () => {
+    el('cut-timeline-apply-btn').disabled = true;
   });
 }
 

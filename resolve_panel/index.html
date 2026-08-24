@@ -49,6 +49,13 @@
       <button class="action-btn" data-action="trim-timeline">Trim Timeline</button>
     </section>
 
+    <section id="cut-timeline-row">
+      <input id="cut-exclude-input" type="text"
+             placeholder="Also exclude segment id(s), e.g. haylee.q02, haylee.q07 (optional)">
+      <button class="action-btn" data-action="cut-timeline-preview" title="Keep only the chosen answers, cut interviewer questions/gaps/dead air -- preview only, nothing built">Preview Cut</button>
+      <button class="action-btn" id="cut-timeline-apply-btn" data-action="cut-timeline-apply" title="Build the cut previewed above onto a new duplicate timeline" disabled>Apply Cut</button>
+    </section>
+
     <div id="chat-log" class="console chat-log"></div>
     <div id="chat-row">
       <input id="chat-input" type="text" placeholder='Talk to Theodore -- e.g. "move haylee.q03 after marcus.q04", or use a button above'>
