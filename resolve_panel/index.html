@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Theodore</title>
+  <link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+  <div id="error-banner" class="hidden"></div>
+  <header id="topbar">
+    <div id="picker">
+      <label>Project
+        <select id="project-select"></select>
+      </label>
+      <label>Subject
+        <select id="subject-select"></select>
+      </label>
+      <button id="refresh-btn" title="Re-read this subject's files">Refresh</button>
+    </div>
+    <div id="resolve-status">Resolve project: <span id="resolve-project-name">(not connected)</span></div>
+  </header>
+
+  <main id="single-pane">
+    <section id="ingest-row">
+      <button id="pick-source-btn">Choose footage...</button>
+      <button id="from-timeline-btn" title="Ingest the audio already synced onto the current Resolve timeline -- no file picker needed">Ingest from Timeline</button>
+      <span id="source-path">(none chosen)</span>
+      <input id="ingest-project" type="text" placeholder="project">
+      <input id="ingest-subject" type="text" placeholder="subject">
+      <button id="run-ingest-btn">Ingest &amp; Analyze</button>
+    </section>
+
+    <section id="quick-actions">
+      <button class="action-btn" data-action="timeline-status">Timeline Status</button>
+      <button class="action-btn" data-action="remove-silence" title="Detect and remove dead air from the open timeline, rippling everything together">Remove Silence</button>
+      <button class="action-btn" data-action="caption-timeline" title="Write captions timed against the open timeline exactly as it is, and import them">Caption Timeline</button>
+      <button class="action-btn" data-action="segments">Segments</button>
+      <button class="action-btn" data-action="delivery" title="Extract vocal delivery profiles (energy, pace, pauses, hesitation) -- run this before Dupes to see WHY a take was recommended, not just which one">Delivery</button>
+      <button class="action-btn" data-action="dupes">Dupes</button>
+      <button class="action-btn" data-action="gaps">Gaps</button>
+      <button class="action-btn" data-action="learn">Learn</button>
+      <input id="find-input" type="text" placeholder="Find a moment...">
+      <button class="action-btn" data-action="find">Find</button>
+    </section>
+
+    <section id="trim-row">
+      <input id="trim-cuts-input" type="text"
+             placeholder="Cut range(s) from Timeline Status, e.g. 86800:87000, 90000:90400">
+      <button class="action-btn" data-action="trim-timeline">Trim Timeline</button>
+    </section>
+
+    <section id="cut-timeline-row">
+      <input id="cut-exclude-input" type="text"
+             placeholder="Also exclude segment id(s), e.g. haylee.q02, haylee.q07 (optional)">
+      <button class="action-btn" data-action="cut-timeline-preview" title="Keep only the chosen answers, cut interviewer questions/gaps/dead air -- preview only, nothing built">Preview Cut</button>
+      <button class="action-btn" id="cut-timeline-apply-btn" data-action="cut-timeline-apply" title="Build the cut previewed above onto a new duplicate timeline" disabled>Apply Cut</button>
+    </section>
+
+    <div id="chat-log" class="console chat-log"></div>
+    <div id="chat-row">
+      <input id="chat-input" type="text" placeholder='Talk to Theodore -- e.g. "move haylee.q03 after marcus.q04", or use a button above'>
+      <button id="chat-send-btn">Send</button>
+    </div>
+  </main>
+
+  <script src="js/renderer.js"></script>
+</body>
+</html>

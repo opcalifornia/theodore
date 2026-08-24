@@ -1,0 +1,7 @@
+{
+  "theodoreExecutable": "/absolute/path/to/theodore/.venv/bin/theodore",
+  "theodoreDataDir": "/absolute/path/to/theodore/data",
+  "theodoreProject": null,
+  "silenceThreshold": null,
+  "aggressive": false
+}
