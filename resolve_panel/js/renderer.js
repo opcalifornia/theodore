@@ -194,6 +194,14 @@ function initQuickActions() {
       return;
     }
 
+    if (action === 'caption-timeline') {
+      const args = requireSubject(action);
+      if (args === null) return;
+      args.push('--import-to-resolve');
+      await runQuickAction('Caption Timeline', args);
+      return;
+    }
+
     const args = requireSubject(action);
     if (args === null) return;
     const labels = {

@@ -1452,6 +1452,74 @@ def remove_silence(project: str, subject: Optional[str], silence_threshold: floa
     click.echo(assembly_builder.format_trim_result(result))
 
 
+@cli.command(name="caption-timeline")
+@click.option("--project", required=True)
+@click.option("--subject", default=None,
+              help="Which subject's transcript to caption. Omit to auto-detect from whatever is "
+                   "actually on the CURRENTLY OPEN Resolve timeline.")
+@click.option("--silence-threshold", type=float, default=config.DEFAULT_SILENCE_THRESHOLD_SECONDS,
+              help="Only affects which words trims.py would drop as dead air; doesn't touch the timeline.")
+@click.option("--aggressive", is_flag=True, help="Also drop captions for interior filler words (um, uh, like).")
+@click.option("--srt/--no-srt", default=True, help="Write captions.srt (default on).")
+@click.option("--vtt/--no-vtt", default=True, help="Write captions.vtt (default on).")
+@click.option("--import-to-resolve", is_flag=True, help="Also try to import the SRT onto the currently open Resolve timeline.")
+def caption_timeline(project: str, subject: Optional[str], silence_threshold: float, aggressive: bool,
+                      srt: bool, vtt: bool, import_to_resolve: bool):
+    """Export captions timed against the CURRENTLY OPEN Resolve timeline exactly as it is --
+    an editor's own synced timeline, or a duplicate `trim-timeline`/`remove-silence` produced --
+    instead of `theodore captions`, which times against a fresh Theodore-built assembly.
+
+    Each kept word (assembly.trim's dead-air/filler detection still applies, so a trimmed-out
+    word gets no caption) is placed by finding where its own source file actually sits on the
+    real timeline, the same source-file matching `theodore remove-silence` uses.
+    """
+    project_dir, reg = _load_registry(project)
+
+    handles = _connect_or_die()
+    if subject is None:
+        subject = _find_subject_on_timeline(project_dir, reg, handles.timeline)
+        if subject is None:
+            raise click.ClickException(
+                "Couldn't tell which subject this is from the open timeline -- pass --subject "
+                "explicitly, or run `theodore timeline-status --subject <id>` to check the match."
+            )
+        click.echo(f"Auto-detected subject '{subject}' from the open timeline.")
+
+    subj_dir = _require_subject_dir(project_dir, reg, subject)
+    transcript = _load_transcript(subj_dir, subject)
+    analysis = _load_analysis(subj_dir, subject)
+    trims = assembly_trim.compute_trims(
+        analysis, transcript, silence_threshold=silence_threshold, aggressive=aggressive,
+    )
+
+    try:
+        cues, warnings = export_captions.build_cues_for_open_timeline(handles, transcript, analysis, trims)
+    except assembly_builder.BuilderError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for w in warnings:
+        click.echo(f"   WARNING: {w}")
+    click.echo(f"Built {len(cues)} caption cue(s) for {resolve_connection.describe_timeline(handles)}.")
+
+    srt_path = None
+    if srt:
+        srt_path = export_captions.write_srt(cues, subj_dir / "captions.srt")
+        click.echo(f"   {srt_path}")
+    if vtt:
+        click.echo(f"   {export_captions.write_vtt(cues, subj_dir / 'captions.vtt')}")
+
+    if import_to_resolve:
+        if srt_path is None:
+            raise click.ClickException("--import-to-resolve needs the SRT; don't pass --no-srt with it.")
+        if export_captions.import_subtitles_to_timeline(handles, srt_path):
+            click.echo(f"\nImported the subtitle track onto {resolve_connection.describe_timeline(handles)}")
+        else:
+            click.echo(
+                "\nThis Resolve version wouldn't take the subtitle import via scripting.\n"
+                f"Import {srt_path} manually: right-click the timeline in the Media Pool -> "
+                "Timelines -> Import -> Subtitle."
+            )
+
+
 @cli.command()
 @click.option("--project", required=True)
 @click.option("--subject", required=True,

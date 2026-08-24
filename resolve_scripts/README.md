@@ -1,21 +1,25 @@
 # Theodore -- DaVinci Resolve Scripts-menu entry points
 
 A **Workspace -> Scripts** entry, not a Workflow Integration Plugin --
-[`Remove Silence.py`](Remove%20Silence.py) runs as a plain Python script
+[`Remove Silence.py`](Remove%20Silence.py) and
+[`Caption Timeline.py`](Caption%20Timeline.py) run as plain Python scripts
 Resolve itself invokes (`resolve` is provided as a pre-existing global; no
 manual connection step, no separate Electron window, no click to open a
 panel first). This is the same mechanism third-party tools like FireCut
 use, and it's the closest any script gets to being a real, native Resolve
 menu item.
 
-It adds no new editing logic of its own -- it figures out the current
-project, works out which Theodore subject is on the open timeline, and
-runs `theodore remove-silence`, the exact same tested code path the CLI
-and the Electron panel's own **Remove Silence** button use. The risky part
-(actually cutting the timeline) already has full test coverage; this
-script is thin glue on top of it, and has its own test coverage too
-(`tests/test_resolve_scripts_remove_silence.py`, exercised via a fake
-`resolve` global shaped the way Resolve's own scripting docs describe).
+Neither adds any new editing logic of its own -- each figures out the
+current project, works out which Theodore subject is on the open
+timeline, and runs `theodore remove-silence` / `theodore caption-timeline`,
+the exact same tested code paths the CLI and the Electron panel's own
+buttons use. The risky part (actually cutting the timeline, placing
+captions) already has full test coverage; these scripts are thin glue on
+top of it, and have their own test coverage too
+(`tests/test_resolve_scripts_remove_silence.py`,
+`tests/test_resolve_scripts_caption_timeline.py`, each exercised via a
+fake `resolve` global shaped the way Resolve's own scripting docs
+describe).
 
 ## Setup
 
@@ -40,9 +44,25 @@ own menu group:
 - Linux: `/opt/resolve/Fusion/Scripts/Utility/Theodore/` (or the per-user equivalent)
 
 `Utility` puts it on every page's Scripts menu; use `Edit` instead if you
-only ever want it on the Edit page. Restart Resolve, then run it from
-**Workspace -> Scripts -> Theodore -> Remove Silence** with a project and
-a timeline open.
+only ever want it on the Edit page. Restart Resolve, then run either one
+from **Workspace -> Scripts -> Theodore -> Remove Silence** /
+**Caption Timeline**, with a project and a timeline open.
+
+## If nothing shows up under Workspace -> Scripts
+
+1. **Fully quit Resolve (Cmd+Q / Alt+F4), not just close the project.**
+   Resolve only scans the Scripts folder at launch -- a project reload
+   isn't enough, and this is the single most common cause.
+2. Confirm the files actually landed where they should have:
+   `ls -la` the `Theodore/` folder at whichever path above matches your
+   OS, and check the timestamps are recent.
+3. If a full restart with the files confirmed present still doesn't show
+   them, try without the `Theodore` subfolder -- copy `Remove Silence.py`
+   / `Caption Timeline.py` (and the config) directly into `Utility/`
+   itself, restart again, and look for them at
+   **Workspace -> Scripts -> Remove Silence** (no submenu this time).
+   Nested-folder submenus are generally supported, but this isolates
+   whether your Resolve version is being fussy about it specifically.
 
 ## How subject discovery works
 
@@ -58,10 +78,11 @@ check the match" fallback exists if that's ever ambiguous.
 ## What's still unverified
 
 Real DaVinci Resolve was not available in this sandbox. What's tested:
-the dead-air detection, the timeline-frame mapping, the trim engine, and
-this script's own glue code (config loading, project/subject discovery,
-building the subprocess call, surfacing a failure cleanly) -- all against
-fakes standing in for the real API. What's NOT verified: that Resolve
-really does inject `resolve`/`fusion`/`bmd` the way its own docs describe,
-and that it really does list a script placed here under Workspace ->
-Scripts. Report back what happens the first time you run it for real.
+dead-air detection, the timeline-frame mapping, the trim engine, caption
+placement, and each script's own glue code (config loading, project/
+subject discovery, building the subprocess call, surfacing a failure
+cleanly) -- all against fakes standing in for the real API. What's NOT
+verified: that Resolve really does inject `resolve`/`fusion`/`bmd` the
+way its own docs describe, and that it really does list a script placed
+here under Workspace -> Scripts (see the troubleshooting section above --
+this is the exact thing being tracked down as of this writing).

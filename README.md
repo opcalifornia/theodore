@@ -304,6 +304,12 @@ theodore remove-silence --project <name> [--subject <id>] [--silence-threshold S
                                                        # the CURRENTLY OPEN timeline via trim-timeline, with the cut
                                                        # ranges figured out automatically. --subject is optional --
                                                        # auto-detected from whatever's actually on the open timeline.
+theodore caption-timeline --project <name> [--subject <id>] [--srt] [--vtt] [--import-to-resolve]
+                                                       # captions timed against the CURRENTLY OPEN timeline exactly as
+                                                       # it is (an editor's own synced cut, or a trim-timeline/
+                                                       # remove-silence duplicate) -- not `theodore captions`, which
+                                                       # times against a fresh Theodore-built assembly. --subject is
+                                                       # optional, same auto-detection as remove-silence.
 
 # v2.0 -- versioned edit lists + the conversational editor
 theodore build --project <name> --subject <id> [--mode ...] [--target MM:SS] [--dry-run]   # seed/rebuild a real timeline
@@ -383,7 +389,26 @@ the gaps: Resolve places each piece immediately after the last one
 already on that track. `match_timeline_to_sources()` /
 `theodore timeline-status` is the read-only first step this builds on:
 confirming which clips on the live timeline are a subject's own known
-audio/video before anything is ever cut.
+audio/video before anything is ever cut. `theodore remove-silence`
+(dead air, from assembly.trim's existing word-level detection) and
+`theodore caption-timeline` (captions timed against the real timeline
+instead of a fresh assembly) both build on the same mapping: a MERGED-
+transcript second resolves to its own source file and file-relative
+time (`_cut_ranges_by_source_index` / `_source_moment_for_merged_second`),
+then to a timeline frame via a matched clip's own `GetSourceStartFrame()`
+and the timeline's real frame rate (`read_timeline_fps()`).
+
+**Working entirely inside DaVinci Resolve, no separate window at all**
+(`resolve_scripts/`): DaVinci Resolve's **Workspace -> Scripts** menu runs a
+plain Python script with `resolve`/`fusion`/`bmd` already provided as
+globals -- a real native menu entry (the same mechanism FireCut and
+similar tools use), distinct from `resolve_panel/`'s Workflow Integration
+Plugin, which is always a separate window. `resolve_scripts/Remove
+Silence.py` and `Caption Timeline.py` are thin glue over the exact same
+tested `theodore remove-silence` / `caption-timeline` CLI paths the panel
+uses: they read a small local config, work out the current project (and,
+since Resolve has no concept of Theodore's "subject", which registered
+subject's audio is actually on the open timeline), and shell out.
 
 **Marker placement is deliberately split into two steps**
 (`resolve/markers.py`): `plan_markers()` is pure and Resolve-independent —

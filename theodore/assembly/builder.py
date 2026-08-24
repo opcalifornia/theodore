@@ -1936,6 +1936,24 @@ def _cut_ranges_by_source_index(
     return by_source
 
 
+def read_timeline_fps(handles: ResolveHandles) -> Fraction:
+    """The CURRENTLY OPEN timeline's own frame rate
+    (Project.GetSetting("timelineFrameRate")) -- the only rate anything
+    placing frames on a real timeline should ever convert seconds against.
+    Never transcript["fps"]: an audio-only source has no fps of its own
+    (ffprobe reports "0/1" for a file with no video stream), and every
+    clip on a timeline, audio included, is placed against the TIMELINE's
+    rate regardless of its source's own nature.
+    """
+    fps_raw = _call(handles.project, "GetSetting", "timelineFrameRate")
+    if not fps_raw:
+        raise BuilderError(
+            "Could not read the timeline's frame rate (Project.GetSetting('timelineFrameRate')) -- "
+            "needed to place frames. Reconnect and try again."
+        )
+    return tc.parse_fps(fps_raw)
+
+
 def dead_air_timeline_cut_ranges(
     handles: ResolveHandles, transcript: dict, trims: dict,
 ) -> tuple[list[tuple[int, int]], list[str]]:
@@ -1972,13 +1990,7 @@ def dead_air_timeline_cut_ranges(
     if not sources:
         return [], ["This transcript has no known source file paths to match against."]
 
-    fps_raw = _call(handles.project, "GetSetting", "timelineFrameRate")
-    if not fps_raw:
-        raise BuilderError(
-            "Could not read the timeline's frame rate (Project.GetSetting('timelineFrameRate')) -- "
-            "needed to place cuts in frames. Reconnect and try again."
-        )
-    fps = tc.parse_fps(fps_raw)
+    fps = read_timeline_fps(handles)
 
     known_paths = [s["path"] for s in sources if s.get("path")]
     matches = match_timeline_to_sources(handles.timeline, known_paths)

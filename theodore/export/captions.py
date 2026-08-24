@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from theodore.assembly import builder as assembly_builder
 from theodore.assembly.plan import AssemblyClip
 from theodore.assembly.trim import kept_words
 from theodore.resolve import timecode as tc
+from theodore.resolve.connection import ResolveHandles
 
 logger = logging.getLogger("theodore.export.captions")
 
@@ -87,6 +89,127 @@ def build_cues(transcript: dict, analysis: dict, trims: dict, plan: list[Assembl
         flush()
 
     return cues
+
+
+def _source_moment_for_merged_second(transcript: dict, merged_seconds: float):
+    """Which source file `merged_seconds` (a word's own start/end, already
+    in merged-transcript-second space) really belongs to, and the FILE-
+    RELATIVE second within it -- same offset logic
+    assembly.builder._cut_ranges_by_source_index uses for dead-air, just
+    resolving one instant instead of a range. Returns None if no utterance
+    covers that instant (shouldn't happen for a word's own timestamp, but
+    a stale/hand-edited transcript is not this function's problem to
+    diagnose)."""
+    sources = transcript.get("sources") or (
+        [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+    )
+    for u in transcript.get("utterances", []):
+        if u["start"] <= merged_seconds <= u["end"]:
+            offset = u["start"] - u.get("source_start", u["start"])
+            source_index = u.get("source_index", 0)
+            if source_index >= len(sources):
+                return None
+            return sources[source_index].get("path"), merged_seconds - offset
+    return None
+
+
+def build_cues_for_open_timeline(
+    handles: ResolveHandles, transcript: dict, analysis: dict, trims: dict,
+) -> tuple[list[Cue], list[str]]:
+    """Caption cues for the CURRENTLY OPEN Resolve timeline exactly as it
+    is -- an editor's own synced timeline, or a duplicate remove-silence/
+    trim-timeline produced -- instead of build_cues()'s fresh Theodore-built
+    assembly. Every segment's kept words (assembly.trim.kept_words, so a
+    trimmed-out filler word or dead-air gap gets no caption) are placed by
+    finding where each word's own source file actually sits on the real
+    timeline -- the same source-file matching
+    assembly.builder.dead_air_timeline_cut_ranges uses -- rather than
+    assuming clips are laid out the way a from-scratch assembly would.
+
+    This works correctly on a trim-timeline/remove-silence duplicate too:
+    those rebuild every clip from the SAME original media pool items with
+    their own real GetSourceStartFrame(), so "which source frame is this"
+    still holds even after ranges were removed and the rest rippled
+    together.
+
+    Returns `(cues, warnings)` -- a word whose source file isn't on the
+    timeline (or isn't covered by any placed clip) is not an error: it's
+    reported as a warning and simply has no caption, the same "unmatched
+    isn't a failure" philosophy dead_air_timeline_cut_ranges uses.
+    """
+    fps = assembly_builder.read_timeline_fps(handles)
+
+    sources = transcript.get("sources") or (
+        [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+    )
+    known_paths = [s["path"] for s in sources if s.get("path")]
+    matches = assembly_builder.match_timeline_to_sources(handles.timeline, known_paths)
+    matches_by_path: dict = {}
+    for m in matches:
+        matches_by_path.setdefault(m.source_path, []).append(m)
+
+    def timeline_seconds(merged_seconds: float):
+        found = _source_moment_for_merged_second(transcript, merged_seconds)
+        if found is None:
+            return None
+        path, file_seconds = found
+        for m in matches_by_path.get(path, []):
+            if m.source_start_frame is None:
+                continue
+            item_start_s = float(tc.frames_to_seconds(m.source_start_frame, fps))
+            item_end_s = item_start_s + float(tc.frames_to_seconds(m.timeline_end_frame - m.timeline_start_frame, fps))
+            if file_seconds >= item_start_s - 1e-6 and file_seconds <= item_end_s + 1e-6:
+                frame = m.timeline_start_frame + tc.seconds_to_frames(file_seconds - item_start_s, fps)
+                return float(tc.frames_to_seconds(frame, fps))
+        return None
+
+    segments_by_id = {s["id"]: s for s in analysis["segments"]}
+    selects_by_id = {s["segment_id"]: s for s in analysis.get("selects", [])}
+
+    cues: list[Cue] = []
+    warnings: list[str] = []
+    unmatched_paths: set = set()
+    for seg in analysis["segments"]:
+        sel = selects_by_id.get(seg["id"])
+        trim = trims.get(seg["id"])
+        words = kept_words(seg, sel, transcript, trim)
+        if not words:
+            continue
+
+        group: list[dict] = []
+        group_start = None
+        group_end = None
+
+        def flush():
+            if group:
+                cues.append(Cue(start_seconds=group_start, end_seconds=group_end, text=" ".join(w["word"] for w in group)))
+
+        for w in words:
+            w_start = timeline_seconds(w["start"])
+            w_end = timeline_seconds(w["end"])
+            if w_start is None or w_end is None or w_end <= w_start:
+                found = _source_moment_for_merged_second(transcript, w["start"])
+                if found and found[0] not in unmatched_paths:
+                    unmatched_paths.add(found[0])
+                    warnings.append(
+                        f"{Path(found[0]).name if found[0] else '(unknown source)'} has no matching clip "
+                        "on the timeline -- words from it have no caption."
+                    )
+                continue
+            if group:
+                gap = w_start - group_end
+                prospective_len = len(" ".join(x["word"] for x in group)) + 1 + len(w["word"])
+                if gap >= CUE_BREAK_GAP_SECONDS or prospective_len > MAX_CUE_CHARS or (w_end - group_start) > MAX_CUE_SECONDS:
+                    flush()
+                    group = []
+            if not group:
+                group_start = w_start
+            group_end = w_end
+            group.append(w)
+        flush()
+
+    cues.sort(key=lambda c: c.start_seconds)
+    return cues, warnings
 
 
 def _format_srt_time(seconds: float) -> str:
