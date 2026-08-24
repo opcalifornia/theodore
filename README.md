@@ -151,7 +151,14 @@ editor picks once instead of re-watching every take. It pools candidates
 by shared theme tag (from `analyze`'s themes pass) rather than comparing
 every segment against every other, so it stays cheap; the recommended take
 within a group is just whichever member Selects already scored highest, no
-second judgment call needed.
+second judgment call needed. If `theodore delivery` has already run for the
+subject, `dupes` shows the *why* behind that pick alongside it — the actual
+measured facts (speaking rate vs. that speaker's own baseline, onset delay,
+pause structure) that pushed one take's `delivery_strength` above the
+other's, not just which segment id won. Run `theodore delivery` before
+`theodore dupes` to get this; without it, `dupes` still works off transcript
+strength alone and prints a one-line hint that delivery data would sharpen
+the recommendation.
 
 `theodore find "<query>"` searches segments in plain language across every
 registered subject by default (or one with `--subject`) — segment ids

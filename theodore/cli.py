@@ -602,18 +602,15 @@ def dupes(project: str, subject: str, model_tier: str):
             model_tier=model_tier, cost_tracker=cost_tracker,
         )
     out = analyze_redundancy.save_redundancy(result, subj_dir)
-
-    if not result["groups"]:
-        click.echo("No redundant segments found.")
-    else:
-        segments_by_id = {s["id"]: s for s in analysis["segments"]}
-        for group in result["groups"]:
-            click.echo(f"\n[{group['id']}] {len(group['segment_ids'])} segments cover the same ground:")
-            for sid in group["segment_ids"]:
-                mark = "-> keep" if sid == group["recommended_id"] else "  drop?"
-                label = segments_by_id.get(sid, {}).get("question_text") or "(volunteered)"
-                click.echo(f"  {mark}  {sid}  {label}")
-            click.echo(f"  reason: {group['reason']}")
+    delivery = analyze_delivery.load_delivery(subj_dir)
+    click.echo(analyze_redundancy.format_redundancy_groups(
+        result, analysis["segments"], analysis.get("selects", []), delivery=delivery,
+    ))
+    if result["groups"] and delivery is None:
+        click.echo(
+            "\n(no delivery.json yet -- run `theodore delivery` first to see the measured "
+            "delivery facts behind each recommendation, not just which take was picked)"
+        )
 
     click.echo(f"\nWrote {out}")
     click.echo(f"\nEstimated cost this run:\n{cost_tracker.summary()}")

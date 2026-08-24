@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from theodore.analyze.claude_client import CostTracker
-from theodore.analyze.redundancy import load_redundancy, run_redundancy, save_redundancy
+from theodore.analyze.redundancy import format_redundancy_groups, load_redundancy, run_redundancy, save_redundancy
 
 
 @dataclass
@@ -148,3 +148,64 @@ def test_save_and_load_redundancy_round_trip(tmp_path):
 
 def test_load_redundancy_missing_file_returns_none(tmp_path):
     assert load_redundancy(tmp_path) is None
+
+
+# --------------------------------------------------------------------------
+# format_redundancy_groups -- pure presentation, no Claude involved.
+# --------------------------------------------------------------------------
+
+_GROUP_RESULT = {"groups": [
+    {"id": "r01", "segment_ids": ["s001", "s002"], "recommended_id": "s001", "reason": "Same flood story."},
+]}
+_GROUP_SEGMENTS = [
+    {"id": "s001", "question_text": "Tell me about the flood."},
+    {"id": "s002", "question_text": "Tell me about the flood."},
+]
+_GROUP_SELECTS = [
+    {"segment_id": "s001", "strength": 0.82, "delivery_strength": 0.9},
+    {"segment_id": "s002", "strength": 0.61},
+]
+
+
+def test_format_redundancy_groups_no_groups():
+    assert format_redundancy_groups({"groups": []}, [], []) == "No redundant segments found."
+
+
+def test_format_redundancy_groups_marks_recommended_and_shows_strength():
+    text = format_redundancy_groups(_GROUP_RESULT, _GROUP_SEGMENTS, _GROUP_SELECTS)
+    assert "-> keep  s001" in text
+    assert "  drop?  s002" in text
+    assert "strength 0.82" in text
+    assert "delivery 0.90" in text
+    assert "Same flood story." in text
+
+
+def test_format_redundancy_groups_without_delivery_strength_omits_it():
+    text = format_redundancy_groups(_GROUP_RESULT, _GROUP_SEGMENTS, _GROUP_SELECTS)
+    # s002 has no delivery_strength in _GROUP_SELECTS -- its line must not
+    # claim one.
+    s002_line = next(line for line in text.splitlines() if "s002" in line)
+    assert "delivery" not in s002_line
+
+
+def test_format_redundancy_groups_shows_delivery_facts_when_available():
+    delivery = {"segments": {
+        "s001": {
+            "descriptor": "Segment s001 delivery profile:\n  - Speaking rate: 3.1 words/sec (20% above baseline of 2.6)\n  - Onset delay: 1.2s before beginning to answer",
+        },
+    }}
+    text = format_redundancy_groups(_GROUP_RESULT, _GROUP_SEGMENTS, _GROUP_SELECTS, delivery=delivery)
+    assert "Speaking rate: 3.1 words/sec" in text
+    assert "Onset delay: 1.2s" in text
+    # The header line itself ("Segment s001 delivery profile:") is
+    # redundant with the segment id already on the line above it.
+    assert "delivery profile:" not in text
+
+
+def test_format_redundancy_groups_segment_without_delivery_data_shows_no_facts():
+    delivery = {"segments": {"s001": {"descriptor": "Segment s001 delivery profile:\n  - Onset delay: 1.2s"}}}
+    text = format_redundancy_groups(_GROUP_RESULT, _GROUP_SEGMENTS, _GROUP_SELECTS, delivery=delivery)
+    lines = text.splitlines()
+    s002_idx = next(i for i, line in enumerate(lines) if "s002" in line)
+    # Nothing indented under s002 before the next segment/group line.
+    assert not lines[s002_idx + 1].startswith("         ")

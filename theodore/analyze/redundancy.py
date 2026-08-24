@@ -158,6 +158,51 @@ def run_redundancy(
     return {"groups": groups}
 
 
+def format_redundancy_groups(
+    result: dict, segments: list[dict], selects: list[dict], delivery: Optional[dict] = None,
+) -> str:
+    """Human-readable dupes listing: each group's candidates with content
+    strength and -- when `theodore delivery` has been run -- the actual
+    measured delivery facts behind the recommendation. `_recommend()`
+    already picks the strongest take for free out of Selects' existing
+    (optionally delivery-informed) strength score; this is purely the
+    presentation layer that makes WHY visible instead of a silent pick,
+    since "trust the ranking" isn't as useful as seeing the same measured
+    facts (energy, pace, pauses, hesitation) a human would notice on a
+    rewatch -- without having to rewatch every take to find them.
+    """
+    if not result["groups"]:
+        return "No redundant segments found."
+
+    segments_by_id = {s["id"]: s for s in segments}
+    selects_by_id = {s["segment_id"]: s for s in selects}
+    delivery_segments = (delivery or {}).get("segments", {})
+
+    lines = []
+    for group in result["groups"]:
+        lines.append(f"\n[{group['id']}] {len(group['segment_ids'])} segments cover the same ground:")
+        for sid in group["segment_ids"]:
+            mark = "-> keep" if sid == group["recommended_id"] else "  drop?"
+            label = segments_by_id.get(sid, {}).get("question_text") or "(volunteered)"
+            sel = selects_by_id.get(sid, {})
+            strength_bits = []
+            if sel.get("strength") is not None:
+                strength_bits.append(f"strength {sel['strength']:.2f}")
+            if sel.get("delivery_strength") is not None:
+                strength_bits.append(f"delivery {sel['delivery_strength']:.2f}")
+            suffix = f"  ({', '.join(strength_bits)})" if strength_bits else ""
+            lines.append(f"  {mark}  {sid}  {label}{suffix}")
+
+            d = delivery_segments.get(sid)
+            if d and d.get("descriptor"):
+                for fact in d["descriptor"].splitlines()[1:]:
+                    fact = fact.strip()
+                    if fact:
+                        lines.append(f"         {fact}")
+        lines.append(f"  reason: {group['reason']}")
+    return "\n".join(lines)
+
+
 def save_redundancy(result: dict, subj_dir: Path) -> Path:
     out = subj_dir / "redundancy.json"
     out.write_text(json.dumps(result, indent=2))

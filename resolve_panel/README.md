@@ -10,7 +10,7 @@ One screen, not a tab-per-command dashboard: a footage picker (a native
 file dialog, or **Ingest from Timeline** to skip picking altogether and
 ingest straight off the currently-open Resolve timeline's audio tracks),
 a row of one-click actions (Timeline Status, Remove Silence, Caption
-Timeline, Segments, Dupes, Gaps, Learn, Find), a Trim Timeline row
+Timeline, Segments, Delivery, Dupes, Gaps, Learn, Find), a Trim Timeline row
 (removes frame range(s) from the open timeline and ripples everything
 else together to close the gap -- the frame numbers come from Timeline
 Status), a Cut Timeline row (keep only the detected answers, cut
@@ -232,9 +232,9 @@ The footage row covers `theodore run` (the full per-subject pipeline, via
 a native picker so no path is ever typed, streamed live into the shared
 console); the chat box at the bottom covers `theodore chat` (a running
 conversation instead of one instruction at a time). Everything in between
--- Timeline Status, Segments, Dupes, Gaps, Learn, Find -- is a **quick
-action**: a button in `#quick-actions` that builds an argv array and
-hands it to `window.theodore.run(...)` via `runQuickAction()` in
+-- Timeline Status, Segments, Delivery, Dupes, Gaps, Learn, Find -- is a
+**quick action**: a button in `#quick-actions` that builds an argv array
+and hands it to `window.theodore.run(...)` via `runQuickAction()` in
 `js/renderer.js`, printing the result into the same `#chat-log` every
 other action writes to. Adding one more CLI command as a quick action is
 just a new `<button class="action-btn" data-action="...">` plus, if its
@@ -244,9 +244,18 @@ wants `window.theodore.runStreaming(args, onOutput, onDone)`, modeled on
 `initIngestTab()`; a REPL-shaped one wants
 `startChat`/`sendChat`/`onChatOutput`, modeled on `initChat()`.
 
+Delivery and Dupes are meant to be run in that order: Delivery extracts
+each segment's measured prosody (pitch, energy, pace, pauses, onset delay)
+against the subject's own speaking baseline and writes `delivery.json`;
+Dupes then reads it (if present) and prints the actual facts behind each
+recommended take alongside the strength score, not just which segment id
+won. Running Dupes first still works -- it falls back to transcript
+strength alone and prints a one-line hint to run Delivery for the fuller
+picture.
+
 Timeline-building surfaces (`theodore build`, `multicam`, versions/diff/
-revert, delivery/peaks) are deliberately not wired to a button right now
--- building a new timeline from scratch isn't today's workflow, which is
+revert, `peaks`) are deliberately not wired to a button right now --
+building a new timeline from scratch isn't today's workflow, which is
 centered on analyzing and eventually trimming an editor's own already-
 synced timeline in place instead. The CLI commands themselves are
 untouched; re-adding a quick action for any of them is the same one-line
