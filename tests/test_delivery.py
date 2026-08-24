@@ -323,3 +323,98 @@ def test_analyze_utterances_end_to_end_on_real_speech(combined_sound, tmp_path):
     assert set(full["segments"].keys()) == {"s001", "s002"}
     assert "delivery profile" in full["segments"]["s001"]["descriptor"]
     assert full["segments"]["s001"]["divergence"] is not None
+
+
+# --------------------------------------------------------------------------
+# Multi-file subjects -- each utterance reads its OWN source file at its
+# OWN file-relative time, not one Sound object read at merged-second
+# offsets (which would silently read the wrong audio, or the wrong file
+# entirely, for anything past the first source).
+# --------------------------------------------------------------------------
+
+def test_analyze_utterances_accepts_a_plain_string_path(combined_sound, tmp_path):
+    wav_path = tmp_path / "combined.wav"
+    combined_sound.save(str(wav_path), "WAV")
+    transcript = {"utterances": [
+        {"id": "u001", "speaker": "0", "start": 0.0, "end": combined_sound.duration, "words": []},
+    ]}
+    features = delivery.analyze_utterances(str(wav_path), transcript)
+    assert features["u001"]["pitch_mean_hz"] is not None
+
+
+def test_analyze_utterances_multi_file_reads_each_utterance_from_its_own_source():
+    a = parselmouth.Sound(str(FIXTURES / "speech_a.wav"))
+    b = parselmouth.Sound(str(FIXTURES / "speech_b.wav"))
+
+    transcript = {
+        "utterances": [
+            {
+                "id": "u001", "speaker": "0", "start": 0.0, "end": a.duration,
+                "source_index": 0, "source_start": 0.0, "source_end": a.duration,
+                "words": [{"word": "It", "start": 0.0, "end": 0.3}, {"word": "was.", "start": 0.3, "end": a.duration}],
+            },
+            {
+                # In the MERGED conversation this immediately follows u001,
+                # but it's really a separate file (source_index 1), so its
+                # file-relative time resets near 0 -- exactly the shape a
+                # real second-take recorder file produces.
+                "id": "u002", "speaker": "0",
+                "start": a.duration + 0.2, "end": a.duration + 0.2 + b.duration,
+                "source_index": 1, "source_start": 0.0, "source_end": b.duration,
+                "words": [{"word": "Then", "start": a.duration + 0.2, "end": a.duration + 0.5}],
+            },
+        ],
+    }
+
+    features = delivery.analyze_utterances(
+        {0: FIXTURES / "speech_a.wav", 1: FIXTURES / "speech_b.wav"}, transcript,
+    )
+
+    assert features["u001"]["pitch_mean_hz"] is not None
+    assert features["u002"]["pitch_mean_hz"] is not None
+    # Proves u002 really read file B's audio (not file A's, and not
+    # merged-offset garbage past file A's own duration): its features
+    # match extracting directly from speech_b.wav at its own start/end.
+    direct = delivery.extract_acoustic_features(b, 0.0, b.duration)
+    assert features["u002"]["pitch_mean_hz"] == pytest.approx(direct["pitch_mean_hz"])
+
+
+def test_analyze_utterances_missing_source_file_degrades_gracefully():
+    transcript = {"utterances": [
+        {"id": "u001", "speaker": "0", "start": 0.0, "end": 1.0,
+         "source_index": 5, "source_start": 0.0, "source_end": 1.0, "words": []},
+    ]}
+    features = delivery.analyze_utterances({0: FIXTURES / "speech_a.wav"}, transcript)
+    assert features["u001"]["pitch_mean_hz"] is None
+    assert features["u001"]["intensity_trend"] is None
+
+
+def test_onset_delay_still_uses_merged_time_across_a_source_boundary():
+    transcript = {
+        "utterances": [
+            {"id": "u001", "speaker": "1", "start": 0.0, "end": 2.0,
+             "source_index": 0, "source_start": 0.0, "source_end": 2.0, "words": []},
+            # Merged: a 3s gap after u001 (5.0 - 2.0). File-relative:
+            # starts at 0.0 in its own (second) file -- if onset delay
+            # wrongly used file-relative time it would compute a negative
+            # gap and return None instead of the real ~3s pause.
+            {"id": "u002", "speaker": "0", "start": 5.0, "end": 6.0,
+             "source_index": 1, "source_start": 0.0, "source_end": 1.0, "words": []},
+        ],
+    }
+    features = delivery.analyze_utterances(
+        {0: FIXTURES / "speech_a.wav", 1: FIXTURES / "speech_b.wav"}, transcript,
+    )
+    assert features["u002"]["onset_delay_seconds"] == pytest.approx(3.0)
+
+
+def test_analyze_utterances_old_transcript_without_source_metadata_defaults_to_source_zero(combined_sound, tmp_path):
+    wav_path = tmp_path / "combined.wav"
+    combined_sound.save(str(wav_path), "WAV")
+    # No source_index/source_start/source_end at all -- an old, single-file
+    # transcript predating multi-file merging.
+    transcript = {"utterances": [
+        {"id": "u001", "speaker": "0", "start": 0.0, "end": combined_sound.duration, "words": []},
+    ]}
+    features = delivery.analyze_utterances({0: wav_path}, transcript)
+    assert features["u001"]["pitch_mean_hz"] is not None

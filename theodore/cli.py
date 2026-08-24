@@ -485,11 +485,36 @@ def _load_analysis(subj_dir: Path, subject: str) -> dict:
     return json.loads(path.read_text())
 
 
-def _find_subject_wav(subj_dir: Path, subject: str) -> Path:
-    wavs = sorted((subj_dir / "audio").glob("*.wav"))
-    if not wavs:
+def _subject_wav_paths_by_source_index(subj_dir: Path, subject: str, transcript: dict) -> dict:
+    """{source_index: wav Path} for every one of a subject's transcript
+    sources -- the inverse of the audio_hash lookup `theodore transcribe`
+    uses (extracted wav filename -> original media path), needed because
+    delivery analysis reads real audio, not just transcript text: a
+    multi-file subject's utterances each belong to a DIFFERENT extracted
+    wav, and picking just one file (as this used to) would silently score
+    prosody against the wrong audio for every source after the first.
+    A source whose wav can't be found is simply left out (delivery.py
+    degrades a missing entry to empty features, not a crash).
+    """
+    media_list = ingest_media.load_media_info(subj_dir)
+    wav_by_original_path = {
+        m["path"]: subj_dir / "audio" / f"{m['audio_hash']}.wav"
+        for m in media_list if m.get("audio_hash")
+    }
+    sources = transcript.get("sources") or (
+        [{"path": transcript["source_file"]}] if transcript.get("source_file") else []
+    )
+    if not sources:
+        raise click.ClickException(f"'{subject}'s transcript has no known source file paths.")
+
+    result = {}
+    for i, s in enumerate(sources):
+        wav_path = wav_by_original_path.get(s.get("path"))
+        if wav_path and wav_path.exists():
+            result[i] = wav_path
+    if not result:
         raise click.ClickException(f"No extracted audio for '{subject}' -- run `theodore ingest` first.")
-    return wavs[0]
+    return result
 
 
 @cli.command()
@@ -509,10 +534,11 @@ def delivery(project: str, subject: str):
 
     transcript = _load_transcript(subj_dir, subject)
     analysis = _load_analysis(subj_dir, subject)
-    wav_path = _find_subject_wav(subj_dir, subject)
+    wav_paths = _subject_wav_paths_by_source_index(subj_dir, subject, transcript)
 
-    with Stopwatch(f"Extracting delivery profiles from {wav_path.name}"):
-        result = analyze_delivery.analyze_delivery(wav_path, transcript, analysis)
+    label = f"{len(wav_paths)} audio file(s)" if len(wav_paths) > 1 else next(iter(wav_paths.values())).name
+    with Stopwatch(f"Extracting delivery profiles from {label}"):
+        result = analyze_delivery.analyze_delivery(wav_paths, transcript, analysis)
     out = analyze_delivery.save_delivery(result, subj_dir)
 
     scored = sum(1 for s in result["segments"].values() if s.get("divergence") is not None)

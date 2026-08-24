@@ -181,20 +181,63 @@ def onset_delay_seconds(question_end: Optional[float], answer_start: float) -> O
 # Orchestration: per-utterance -> per-speaker baseline -> per-segment profile
 # --------------------------------------------------------------------------
 
-def analyze_utterances(wav_path: Path, transcript: dict) -> dict:
+def analyze_utterances(wav_paths, transcript: dict) -> dict:
     """{utterance_id: {raw features...}} for every utterance in the
-    transcript. Onset delay is computed only where the immediately
-    preceding utterance is a DIFFERENT speaker (i.e. this utterance opens a
-    turn) -- consecutive same-speaker utterances aren't "answers" to
-    anything in this sense."""
-    sound = parselmouth.Sound(str(wav_path))
+    transcript.
+
+    `wav_paths` is either a single Path (the ordinary single-file case,
+    normalized below to `{0: path}`) or `{source_index: Path}` for a
+    subject transcribed from several files (theodore run --from-timeline's
+    normal case: one file per external-recorder take). Each utterance's
+    ACOUSTIC features are read from its OWN source file at its OWN FILE-
+    RELATIVE time (`source_index`/`source_start`/`source_end`, the same
+    fields assembly.builder's timeline-frame mapping uses) -- reading
+    every utterance against a single Sound object using MERGED-transcript
+    seconds would silently pull audio from the wrong moment (or the wrong
+    file entirely) for anything belonging to the second file onward. An
+    utterance missing that metadata (an old transcript predating multi-
+    file merging) falls back to source_index 0 with its own start/end,
+    identical to the single-file case.
+
+    Onset delay is the one exception, computed only where the immediately
+    preceding utterance is a DIFFERENT speaker (i.e. this utterance opens
+    a turn), and DELIBERATELY still measured in MERGED-transcript-second
+    space even though everything else here is file-relative: it's a gap
+    BETWEEN two utterances that may themselves belong to different source
+    files (a question captured on one file, its answer beginning a new
+    one), and only the merged timeline expresses that gap correctly.
+    """
+    if isinstance(wav_paths, (str, Path)):
+        wav_paths = {0: Path(wav_paths)}
+
     utterances = transcript["utterances"]
+    sounds: dict = {}
+
+    def _sound_for(source_index: int):
+        if source_index not in sounds:
+            path = wav_paths.get(source_index)
+            sounds[source_index] = parselmouth.Sound(str(path)) if path else None
+        return sounds[source_index]
 
     results = {}
     for i, u in enumerate(utterances):
         words = u.get("words") or []
-        acoustic = extract_acoustic_features(sound, u["start"], u["end"])
-        trend = intensity_trend(sound, u["start"], u["end"])
+        source_index = u.get("source_index", 0)
+        file_start = u.get("source_start", u["start"])
+        file_end = u.get("source_end", u["end"])
+        sound = _sound_for(source_index)
+
+        if sound is None:
+            acoustic = dict(_EMPTY_ACOUSTIC)
+            trend = None
+            logger.warning(
+                "No audio file for source #%d (utterance %s) -- delivery features skipped for it.",
+                source_index, u["id"],
+            )
+        else:
+            acoustic = extract_acoustic_features(sound, file_start, file_end)
+            trend = intensity_trend(sound, file_start, file_end)
+
         pauses = pause_structure(words) if words else {"count": None, "total_seconds": None}
 
         prev = utterances[i - 1] if i > 0 else None
@@ -356,11 +399,15 @@ def divergence_score(features: dict, baseline: dict) -> Optional[float]:
     return float(np.sqrt(np.mean(np.square(z_scores))))
 
 
-def analyze_delivery(wav_path: Path, transcript: dict, analysis: dict) -> dict:
+def analyze_delivery(wav_paths, transcript: dict, analysis: dict) -> dict:
     """The full pass: per-utterance raw features, per-speaker baselines,
     and a per-segment aggregated profile + descriptor + divergence score.
-    This is exactly what gets written to delivery.json."""
-    utterance_features = analyze_utterances(wav_path, transcript)
+    This is exactly what gets written to delivery.json.
+
+    `wav_paths`: see analyze_utterances() -- a single Path, or
+    {source_index: Path} for a subject transcribed from several files.
+    """
+    utterance_features = analyze_utterances(wav_paths, transcript)
     baselines = compute_baselines(utterance_features)
 
     segments = {}
