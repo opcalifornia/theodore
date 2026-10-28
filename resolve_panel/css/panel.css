@@ -95,6 +95,26 @@ button:disabled { opacity: 0.45; cursor: default; }
 #resolve-status.connected::before { background: var(--accent-cool); }
 #resolve-project-name { color: var(--text); font-weight: 500; }
 
+/* The Python bridge, tracked separately from the project name: the panel
+   reads the project through its own in-process handle, but every action
+   below runs through the CLI, which needs the bridge. Hover for the fix. */
+#bridge-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  cursor: help;
+  white-space: nowrap;
+}
+#bridge-state.bridge-on {
+  color: var(--accent-cool);
+  border-color: color-mix(in srgb, var(--accent-cool) 40%, transparent);
+}
+#bridge-state.bridge-off {
+  color: var(--text-faint);
+  border-color: #3d3d49;
+}
+
 #single-pane {
   padding: 14px 16px;
   display: flex;

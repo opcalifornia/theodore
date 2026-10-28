@@ -1,6 +1,35 @@
 # Theodore -- DaVinci Resolve Scripts-menu entry points
 
-A **Workspace -> Scripts** entry, not a Workflow Integration Plugin --
+## Start here: `Theodore Bridge.py`
+
+[`Theodore Bridge.py`](Theodore%20Bridge.py) is the front door, and the
+only one of these you need to run by hand. Run it **once per Resolve
+session** (Workspace -> Scripts -> Theodore -> Theodore Bridge) and
+Theodore is connected to Resolve from everywhere -- the CLI, the Electron
+panel, the other scripts here -- with no reconnect per action.
+
+Install it with `theodore install-bridge`, then **fully quit Resolve
+(Cmd+Q) and reopen it** -- Resolve builds the Scripts menu only at launch.
+
+It works like this: a script run from the Scripts menu is handed a live
+`resolve` object, inside Resolve's process, on *any* edition. The bridge
+holds that object and re-exports it over a loopback HTTP listener that
+Theodore connects to. Nothing outside Resolve imports
+`DaVinciResolveScript` at all -- which is why this works on the free
+edition, where Blackmagic blocks external scripting entirely.
+
+Three properties make it safe to leave running: every Resolve API call is
+queued onto a **single worker thread** (the API is not thread-safe, and
+several front doors share the bridge); the listener runs on a daemon
+thread so **Resolve's UI never blocks**; and it binds **loopback only with
+a per-launch token** written to `~/.theodore/bridge.json` at mode `0600`.
+
+`theodore bridge-status` says whether it's live. `python3
+scripts/live_smoke_test.py` verifies it properly against your real
+Resolve.
+
+## The action scripts
+
 [`Remove Silence.py`](Remove%20Silence.py),
 [`Caption Timeline.py`](Caption%20Timeline.py), and
 [`Cut Timeline.py`](Cut%20Timeline.py) run as plain Python scripts Resolve

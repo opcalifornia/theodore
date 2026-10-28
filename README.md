@@ -35,15 +35,18 @@ not a rewrite.
 
 ## Requirements
 
-- **DaVinci Resolve Studio.** The free edition of Resolve does not expose
-  the external scripting API — Theodore cannot connect to it, and there is
-  no free-edition fallback. If Resolve isn't running (or isn't reachable),
-  Theodore falls back to writing an EDL marker file to disk instead of
-  crashing or losing your analysis.
+- **DaVinci Resolve** — Studio *or* the free edition, via the bridge (see
+  [Connecting to Resolve](#connecting-to-resolve)). The older
+  external-scripting route is Studio-only and still supported as a
+  fallback. If Resolve isn't running (or isn't reachable), Theodore falls
+  back to writing an EDL marker file to disk instead of crashing or losing
+  your analysis.
 - Resolve must be **running with a project and timeline open** before you
   run `theodore markers`.
-- Resolve's **Preferences → System → General → External scripting using**
-  must be set to `Local` (or `Network`).
+- Only if you use the *external scripting* fallback rather than the bridge:
+  Resolve's **Preferences → System → General → External scripting using**
+  must be set to `Local` (or `Network`). The bridge needs neither this
+  setting nor Studio.
 - Python 3.10+
 - [ffmpeg](https://ffmpeg.org/) (ffmpeg + ffprobe on your `PATH`)
 - An [Anthropic API key](https://console.anthropic.com/) and a
@@ -346,6 +349,10 @@ theodore find "<query>" --project <name> [--subject <id>] [--limit N]  # plain-l
 theodore rejects --project <name> --subject <id> [--threshold N]       # weak segments, sorted weakest first
 theodore gaps --project <name> --subject <id>                          # question-guide entries never answered
 theodore learn --project <name> --subject <id>                         # Selects' predictions vs. the current edit list
+
+# Connecting to Resolve (see "Connecting to Resolve" below)
+theodore install-bridge [--dest DIR] [--dry-run] [--all-users]         # install the Scripts-menu bridge
+theodore bridge-status                                                 # which route is live, and what to fix
 ```
 
 `--model-tier` swaps the whole Claude model-routing table at once (see
@@ -473,6 +480,77 @@ response → `transcript.json` normalization layer, the Claude call wrapper
 Anthropic client, and marker writing against a fake Resolve timeline. None
 of the tests require a Deepgram/Anthropic API key or a running Resolve
 instance.
+
+## Connecting to Resolve
+
+There are two ways Theodore can reach DaVinci Resolve. It prefers the
+**bridge**, and falls back to **external scripting** automatically.
+
+### The bridge (recommended)
+
+```bash
+theodore install-bridge          # copies the script into Resolve's Scripts folder
+# then FULLY quit Resolve (Cmd+Q) and reopen it
+# in Resolve: Workspace -> Scripts -> Theodore -> Theodore Bridge
+theodore bridge-status           # confirm it worked
+```
+
+A script run from Resolve's own **Workspace → Scripts** menu is handed a
+live `resolve` object, inside Resolve's process, on *any* edition.
+`resolve_scripts/Theodore Bridge.py` holds that object and re-exports it
+over a loopback HTTP listener; Theodore connects to the listener. Nothing
+outside Resolve imports `DaVinciResolveScript` at all.
+
+That buys three things:
+
+- **Works on the free edition.** Blackmagic gates *external* scripting to
+  Studio, and from Resolve 19.1 the free edition refuses outside
+  connections outright. Running inside Resolve sidesteps both limits.
+- **Connect once per session, not per action.** Every action afterwards is
+  a local call — measured at ~0.5 ms, against a fresh process launch and
+  API handshake for every single click before.
+- **No environment setup.** No `RESOLVE_SCRIPT_API`, no `PYTHONPATH`, no
+  *External scripting using* preference.
+
+You run the menu item **once each time you open Resolve**. It shuts down
+with Resolve.
+
+**If "Theodore" doesn't appear under Workspace → Scripts:** quit Resolve
+*completely* (Cmd+Q — closing the project is not enough) and reopen it.
+Resolve builds that menu only at launch, so a newly-installed script never
+appears in a running Resolve no matter how long you wait.
+
+### External scripting (fallback)
+
+The classic route: `DaVinciResolveScript.scriptapp("Resolve")` from outside
+Resolve. Needs Studio, the *External scripting using* preference set to
+`Local`, and the environment variables `setup.sh` writes. Theodore uses it
+automatically when no bridge is running, so everything keeps working if you
+skip the setup step above.
+
+`theodore bridge-status` reports which route is live, the Resolve version
+and edition, and what to do if neither works. Pin a route with
+`THEODORE_RESOLVE_TRANSPORT=bridge|external` when you need to prove which
+one a problem is in.
+
+### Safety
+
+The listener can drive your whole Resolve, so it binds `127.0.0.1` only,
+mints a fresh token each launch, requires it on every request, and writes
+that token to `~/.theodore/bridge.json` with mode `0600`.
+
+### Verifying it on your machine
+
+```bash
+python3 scripts/live_smoke_test.py                  # read-only
+python3 scripts/live_smoke_test.py --write-markers  # also writes, to a DUPLICATE timeline
+```
+
+13 checks against your real Resolve: that the listener survives the menu
+script returning, that the object graph proxies correctly, that
+`GetMarkers()` keys really are ints, that concurrent callers are
+serialized, call latency, and that a bad token is rejected. The write check
+only ever touches a duplicate timeline, never your edit.
 
 ## DaVinci Resolve panel
 

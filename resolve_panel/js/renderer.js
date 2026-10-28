@@ -410,6 +410,28 @@ async function init() {
       el('resolve-project-name').textContent = '(not connected)';
       status.classList.remove('connected');
     }
+
+    // Separate from the project name above on purpose. That comes from this
+    // panel's own in-process Resolve handle, but every button below shells
+    // out to the `theodore` CLI, which reaches Resolve through the Python
+    // bridge. Without this, a panel showing a happily connected project
+    // while every action fails is genuinely baffling to debug.
+    const bridgeEl = el('bridge-state');
+    if (!bridgeEl) return;
+    let running = false;
+    try {
+      running = await window.theodore.bridgeRunning();
+    } catch (err) {
+      running = false;
+    }
+    bridgeEl.textContent = running ? 'bridge on' : 'bridge off';
+    bridgeEl.classList.toggle('bridge-on', running);
+    bridgeEl.classList.toggle('bridge-off', !running);
+    bridgeEl.title = running
+      ? 'Theodore is connected to Resolve. Actions run instantly.'
+      : 'Not connected. In Resolve: Workspace -> Scripts -> Theodore -> '
+        + 'Theodore Bridge (once per Resolve session). If it is not in that '
+        + 'menu, run: theodore install-bridge, then fully quit and reopen Resolve.';
   }
   await pollResolveStatus();
   setInterval(pollResolveStatus, RESOLVE_POLL_INTERVAL_MS);

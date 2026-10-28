@@ -144,6 +144,37 @@ ipcMain.on('theodore:chatStop', () => {
   activeChat = null;
 });
 
+// Whether Theodore's PYTHON bridge is running inside Resolve.
+//
+// Distinct from resolveAPI above, and both matter. resolveAPI is this
+// panel's own in-process JavaScript handle, which Resolve hands to a
+// Workflow Integration plugin -- it is what the status line's project name
+// comes from. But every quick action shells out to the `theodore` CLI, and
+// the CLI reaches Resolve through the Python bridge instead.
+//
+// So the panel can legitimately show a connected project while every button
+// fails, which is a baffling thing to debug. Reading the handshake file
+// tells us which, cheaply enough to poll (no subprocess, no socket).
+function bridgeHandshakePath() {
+  const home = process.env.THEODORE_BRIDGE_HOME
+    || path.join(require('os').homedir(), '.theodore');
+  return path.join(home, 'bridge.json');
+}
+
+ipcMain.handle('theodore:bridgeRunning', () => {
+  try {
+    const raw = require('fs').readFileSync(bridgeHandshakePath(), 'utf8');
+    const data = JSON.parse(raw);
+    // A handshake file alone doesn't prove the bridge is alive -- Resolve
+    // may have quit without cleaning up -- but it does tell us whether it
+    // was ever started, which is the difference between "run the bridge"
+    // and "restart the bridge".
+    return Boolean(data && data.port && data.token);
+  } catch (err) {
+    return false;
+  }
+});
+
 ipcMain.handle('theodore:currentResolveProjectName', () => {
   if (!resolveAPI) return null;
   try {

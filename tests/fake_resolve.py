@@ -336,3 +336,47 @@ class FakeProject:
         if self.honour_set_current_timeline:
             self.current_timeline = timeline
         return self.set_current_timeline_returns
+
+
+class FakeProjectManager:
+    """A ProjectManager -- the object `resolve.GetProjectManager()` hands back."""
+
+    def __init__(self, project=None):
+        self.project = project
+        self.saved = 0
+
+    def GetCurrentProject(self):
+        return self.project
+
+    def SaveProject(self):
+        self.saved += 1
+        return True
+
+
+class FakeResolve:
+    """The root `resolve` object Resolve injects into a Scripts-menu script.
+
+    Only exists for the bridge: every other test reaches straight for a
+    project or timeline, but the bridge's whole job is re-exporting this
+    root object, so it needs a real one to stand in for.
+    """
+
+    def __init__(self, project=None, product_name="DaVinci Resolve Studio",
+                 version_string="20.3.1 Build 5"):
+        self.project_manager = FakeProjectManager(project)
+        self._product_name = product_name
+        self._version_string = version_string
+        self.opened_pages = []
+
+    def GetProjectManager(self):
+        return self.project_manager
+
+    def GetProductName(self):
+        return self._product_name
+
+    def GetVersionString(self):
+        return self._version_string
+
+    def OpenPage(self, page):
+        self.opened_pages.append(page)
+        return True

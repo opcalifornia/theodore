@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('theodore', {
   readPending: (project) => ipcRenderer.invoke('theodore:readPending', project),
   run: (args) => ipcRenderer.invoke('theodore:run', args),
   currentResolveProjectName: () => ipcRenderer.invoke('theodore:currentResolveProjectName'),
+  bridgeRunning: () => ipcRenderer.invoke('theodore:bridgeRunning'),
 
   // Native picker so the editor chooses footage by clicking, never by
   // typing a path into a text box.

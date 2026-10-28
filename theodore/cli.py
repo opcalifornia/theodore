@@ -33,9 +33,12 @@ from theodore.export import notes as export_notes
 from theodore.export import review as export_review
 from theodore.ingest import audio as ingest_audio
 from theodore.ingest import media as ingest_media
+from theodore.resolve import bridge_client as resolve_bridge
+from theodore.resolve import bridge_protocol as resolve_bridge_proto
 from theodore.resolve import connection as resolve_connection
 from theodore.resolve import markers as resolve_markers
 from theodore.resolve import multicam as resolve_multicam
+from theodore.resolve import paths as resolve_paths
 from theodore.resolve import timecode
 from theodore.transcribe import deepgram as dg
 
@@ -2153,6 +2156,134 @@ def status(project: str, subject: Optional[str]):
             done = (subj_dir / filename).exists()
             click.echo(f"  {name:<12} {'done' if done else 'not started'}")
         click.echo()
+
+
+#: The bridge script, as shipped in this repo. Named for the menu entry it
+#: becomes: Resolve uses the filename as the label under Workspace -> Scripts.
+BRIDGE_SCRIPT_NAME = "Theodore Bridge.py"
+
+
+def _repo_bridge_script() -> Path:
+    return Path(__file__).resolve().parent.parent / "resolve_scripts" / BRIDGE_SCRIPT_NAME
+
+
+@cli.command(name="install-bridge")
+@click.option("--dest", default=None, type=click.Path(),
+              help="Install into this folder instead of the auto-detected Scripts folder.")
+@click.option("--dry-run", is_flag=True, help="Show what would be copied, change nothing.")
+@click.option("--all-users", is_flag=True,
+              help="Install into the machine-wide Scripts folder (may need sudo) "
+                   "rather than this user's.")
+def install_bridge(dest: Optional[str], dry_run: bool, all_users: bool):
+    """Copy the bridge script into DaVinci Resolve's Scripts folder.
+
+    This is the one setup step the bridge needs, and the step most likely to
+    go wrong by hand -- the folder is buried, differs per OS, and Resolve
+    only scans it at launch, so a file in the wrong place looks identical to
+    a file Resolve is ignoring.
+
+    After this, FULLY QUIT Resolve (Cmd+Q, not just closing the project) and
+    reopen it: the Scripts menu is built at startup, so a running Resolve
+    will not show a newly-installed script no matter how long you wait.
+    """
+    source = _repo_bridge_script()
+    if not source.exists():
+        raise click.ClickException(f"Can't find the bridge script at {source}.")
+
+    if dest:
+        target_dir = Path(dest).expanduser()
+    else:
+        candidates = resolve_paths.scripts_dirs()
+        if not candidates:
+            raise click.ClickException(
+                "Don't know where Resolve's Scripts folder lives on this platform. "
+                "Pass --dest with the folder to install into."
+            )
+        # scripts_dirs() puts the per-user folder first on purpose: it needs
+        # no admin rights. --all-users opts into the machine-wide one.
+        chosen = candidates[-1] if all_users and len(candidates) > 1 else candidates[0]
+        target_dir = chosen / "Theodore"
+
+    target = target_dir / BRIDGE_SCRIPT_NAME
+
+    click.echo(f"Source:      {source}")
+    click.echo(f"Destination: {target}")
+    if not target_dir.parent.exists():
+        click.echo(
+            f"\nNote: {target_dir.parent} doesn't exist yet. That usually means "
+            "Resolve has never run as this user, or isn't installed where expected. "
+            "Installing anyway -- Resolve will pick it up once it does exist."
+        )
+
+    if dry_run:
+        click.echo("\n(dry run -- nothing copied)")
+        return
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    except OSError as exc:
+        hint = ""
+        if not all_users and "Permission denied" in str(exc):
+            hint = "\n\nTry again without --all-users, or re-run with sudo."
+        raise click.ClickException(f"Could not install the bridge script: {exc}{hint}")
+
+    click.echo("\nInstalled.")
+    click.echo(
+        "\nNext:\n"
+        "  1. FULLY quit DaVinci Resolve (Cmd+Q) and reopen it. Resolve only\n"
+        "     scans the Scripts folder at launch, so this step is not optional.\n"
+        "  2. Open a project and a timeline.\n"
+        "  3. Run Workspace -> Scripts -> Theodore -> Theodore Bridge.\n"
+        "  4. Check it with: theodore bridge-status\n"
+    )
+
+
+@cli.command(name="bridge-status")
+def bridge_status():
+    """Show how (or whether) Theodore can currently reach DaVinci Resolve.
+
+    Read-only, and never raises on a failed connection -- the point is to
+    report what's wrong and what to do about it.
+    """
+    status = resolve_connection.probe()
+
+    handshake = resolve_bridge.read_handshake()
+    if handshake:
+        click.echo(f"Bridge handshake:  {resolve_bridge_proto.handshake_path()}")
+        click.echo(f"  listening on     127.0.0.1:{handshake['port']} (Resolve pid {handshake.get('pid')})")
+    else:
+        click.echo("Bridge handshake:  none found (the bridge has not been started)")
+
+    scripting = resolve_paths.detect_scripting_paths()
+    click.echo(
+        "External scripting API: "
+        + (f"found at {scripting.api_dir}" if scripting.complete else "not found")
+        + (" (from environment)" if scripting.from_environment else "")
+    )
+
+    click.echo()
+    if not status["connected"]:
+        click.echo("NOT CONNECTED\n")
+        click.echo(status["error"] or "Unknown error.")
+        return
+
+    route = "the in-Resolve bridge" if status["via"] == resolve_connection.BRIDGE \
+        else "external scripting"
+    click.echo(f"CONNECTED via {route}")
+    click.echo(f"  Resolve:   {status['product'] or '?'} {status['version'] or ''}".rstrip())
+    click.echo(f"  Edition:   {'Studio' if status['studio'] else 'free'}")
+    click.echo(f"  Project:   {status['project']}")
+    click.echo(f"  Timeline:  {status['timeline']}")
+    if status["error"]:
+        click.echo(f"\nWarning: {status['error']}")
+    if status["via"] == resolve_connection.EXTERNAL:
+        click.echo(
+            "\nTip: this is the fallback route. The bridge is faster (no reconnect "
+            "per action) and works on the free edition too -- run\n"
+            "  theodore install-bridge\n"
+            "then start it from Workspace -> Scripts -> Theodore -> Theodore Bridge."
+        )
 
 
 def main():
