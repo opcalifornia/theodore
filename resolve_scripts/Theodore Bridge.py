@@ -580,5 +580,10 @@ def main():
             pass
 
 
-if __name__ == "__main__":
+# Resolve executes Scripts-menu files itself and does not promise
+# __name__ == "__main__", so keying only on that left the script loading and
+# doing nothing -- no dialog, no error. The reliable signal is the injected
+# `resolve` global, which is exactly what main() needs anyway. Tests import
+# this file with neither condition true, so importing stays side-effect free.
+if __name__ == "__main__" or "resolve" in globals():
     main()

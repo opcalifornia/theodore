@@ -509,3 +509,25 @@ def test_markers_module_writes_through_the_bridge_unchanged(live_bridge):
     # survived the round trip.
     assert 240 in timeline.markers
     assert timeline.markers[240]["color"] == "Blue"
+
+
+def test_script_runs_when_resolve_injects_the_global_without_main_name(tmp_path, monkeypatch):
+    """Regression: Resolve doesn't promise __name__ == "__main__", so the
+    script must start when it sees the injected `resolve` global instead.
+    Before this, clicking the menu item did nothing at all."""
+    import runpy
+
+    monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h"))
+    resolve_obj, _p, _t = _build_fake_resolve()
+    runpy.run_path(str(BRIDGE_SCRIPT), run_name="not_main",
+                        init_globals={"resolve": resolve_obj,
+                                      "blockMainThread": False})
+    assert (tmp_path / "h" / "bridge.json").exists()
+
+
+def test_importing_the_script_without_resolve_has_no_side_effects(tmp_path, monkeypatch):
+    import runpy
+
+    monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h2"))
+    runpy.run_path(str(BRIDGE_SCRIPT), run_name="not_main")
+    assert not (tmp_path / "h2" / "bridge.json").exists()
