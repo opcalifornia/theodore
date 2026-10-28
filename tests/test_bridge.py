@@ -531,3 +531,12 @@ def test_importing_the_script_without_resolve_has_no_side_effects(tmp_path, monk
     monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h2"))
     runpy.run_path(str(BRIDGE_SCRIPT), run_name="not_main")
     assert not (tmp_path / "h2" / "bridge.json").exists()
+
+
+def test_script_runs_when_exec_d_without___file__(tmp_path, monkeypatch):
+    """The Console fallback: exec(open(path).read()) has no __file__."""
+    monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h3"))
+    resolve_obj, _p, _t = _build_fake_resolve()
+    namespace = {"resolve": resolve_obj, "__name__": "console"}
+    exec(compile(BRIDGE_SCRIPT.read_text(), "bridge", "exec"), namespace)
+    assert (tmp_path / "h3" / "bridge.json").exists()

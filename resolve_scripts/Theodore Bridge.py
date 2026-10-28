@@ -89,7 +89,12 @@ TYPE_KEY = "__type__"
 MAP_KEY = "__map__"
 ROOT_REF = 0
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    # No __file__ when the code is exec'd from Resolve's Console (the way to
+    # start the bridge without the Scripts menu). Config is optional anyway.
+    SCRIPT_DIR = os.path.expanduser("~")
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "theodore-scripts-config.json")
 
 DEFAULT_CALL_TIMEOUT = 120.0
