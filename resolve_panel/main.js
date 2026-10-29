@@ -104,6 +104,16 @@ ipcMain.handle('theodore:pickSource', async () => {
   return result.filePaths[0];
 });
 
+// Videos for Claude to study (a reference to copy, or footage to cut).
+ipcMain.handle('theodore:pickVideos', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose videos for Claude',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'mxf', 'avi', 'mkv', 'webm', 'mts'] }],
+  });
+  return result.canceled ? [] : result.filePaths;
+});
+
 // `theodore run` (ingest -> transcribe -> analyze -> markers -> notes) can
 // take minutes, so it's streamed instead of using theodore:run's buffered
 // invoke/resolve: `event.sender.send` pushes each output chunk to the

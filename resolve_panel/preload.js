@@ -7,7 +7,7 @@
 // (contextIsolation + a preload script) for a Workflow Integration plugin,
 // and it's good practice on its own terms.
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('theodore', {
   listProjects: () => ipcRenderer.invoke('theodore:listProjects'),
@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('theodore', {
   // Native picker so the editor chooses footage by clicking, never by
   // typing a path into a text box.
   pickSource: () => ipcRenderer.invoke('theodore:pickSource'),
+  pickVideos: () => ipcRenderer.invoke('theodore:pickVideos'),
+  // A dropped File's real path. The sandboxed page can't see it (File.path
+  // is gone in current Electron); webUtils is the supported way.
+  pathForFile: (file) => (webUtils ? webUtils.getPathForFile(file) : ''),
 
   // Streaming counterpart to run(): fire the command, then listen for
   // output chunks and a final result via the two callbacks below, keyed by

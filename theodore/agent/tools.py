@@ -72,6 +72,7 @@ class Tool:
     schema: dict
     handler: Callable
     kind: str = READ
+    needs_resolve: bool = True  # False: works on files only, runs even with Resolve closed
 
     def api_spec(self) -> dict:
         return {"name": self.name, "description": self.description,
@@ -471,6 +472,56 @@ def _theodore_edit(ctx, h, command, args=None):
 
 
 # ---------------------------------------------------------------------------
+# handlers: studying reference videos (files only, no Resolve)
+# ---------------------------------------------------------------------------
+
+def _study_reference(ctx, h, path, name=None, look_at_shots=True):
+    from theodore.study import reference
+    path = os.path.expanduser(path)
+    if not os.path.isfile(path):
+        raise ToolError(f"No video file at {path!r}.")
+    result = reference.study(Path(path), name, use_vision=bool(look_at_shots))
+    bp = result["blueprint"]
+    return {"name": result["name"], "saved_to": result["dir"], "blueprint": bp,
+            "note": "Full shot-by-shot log, transitions, beats and transcript: get_reference."}
+
+
+def _list_references(ctx, h):
+    from theodore.study import reference
+    return {"references": reference.list_references()}
+
+
+_REFERENCE_PARTS = ("blueprint", "shots", "transitions", "music", "speech", "transcript", "pacing")
+
+
+def _get_reference(ctx, h, name, part="blueprint"):
+    from theodore.study import reference
+    try:
+        ref = reference.load_reference(name)
+    except FileNotFoundError as exc:
+        raise ToolError(str(exc))
+    an = ref["analysis"]
+    if part == "blueprint":
+        return {"blueprint": ref["blueprint"]}
+    if part == "shots":
+        log = an.get("shot_log", {})
+        return {"fps": an["media"]["fps"], "shots": [
+            {**s, "look": log.get(str(s["index"]), {})} for s in an["shots"]]}
+    if part == "transitions":
+        return {"fps": an["media"]["fps"], "summary": an["transition_summary"],
+                "transitions": an["transitions"]}
+    if part == "music":
+        return {"music": an.get("music"), "energy": an.get("energy"), "loudness": an.get("loudness")}
+    if part == "speech":
+        return {"speech": an.get("speech")}
+    if part == "transcript":
+        return {"transcript": an.get("transcript", "")}
+    if part == "pacing":
+        return {"pacing": an.get("pacing")}
+    raise ToolError(f"part must be one of {_REFERENCE_PARTS}")
+
+
+# ---------------------------------------------------------------------------
 # registry
 # ---------------------------------------------------------------------------
 
@@ -557,6 +608,22 @@ TOOLS = [
          "unless `--apply` is in args -- preview first.",
          _obj({"command": _S, "args": {"type": "array", "items": _S}}, ["command"]),
          _theodore_edit, WRITE),
+    # reference videos
+    Tool("study_reference", "Study a finished video file (the editor's reference): finds every "
+         "cut and transition (dissolve, fade, wipe, flash, stinger), pacing, tempo and beat sync, "
+         "what's said, and -- looking at every shot -- shot sizes, A/B-roll, overlays, titles, "
+         "look. Returns an edit blueprint with a recipe to replicate it. Takes ~1 min per minute "
+         "of video. Use whenever the editor gives you a video to learn from or copy.",
+         _obj({"path": _S, "name": _S, "look_at_shots": {"type": "boolean"}}, ["path"]),
+         _study_reference, READ, needs_resolve=False),
+    Tool("list_references", "Reference videos already studied, by name.", _obj({}),
+         _list_references, READ, needs_resolve=False),
+    Tool("get_reference", "A studied reference: its blueprint, or the detail behind it -- "
+         "part = blueprint | shots (every shot with timing, transition in/out, size, role, "
+         "on-screen text, overlays) | transitions | music (tempo, beats, sync) | speech | "
+         "transcript | pacing.",
+         _obj({"name": _S, "part": {"type": "string", "enum": list(_REFERENCE_PARTS)}}, ["name"]),
+         _get_reference, READ, needs_resolve=False),
     # escape hatch
     Tool("call_resolve_api", "ESCAPE HATCH: call any Resolve API method directly. Prefer the "
          "specific tools above; use this only for what they don't cover. targets: resolve, "
@@ -572,7 +639,7 @@ def execute(tool: Tool, ctx: AgentContext, args: dict) -> ToolOutput:
     """Run one tool with all the safety rails. Never raises: a failure comes
     back as ``{"ok": False, "error": ...}`` for the model to read."""
     try:
-        h = ctx.handles()
+        h = ctx.handles() if tool.needs_resolve else None
         if tool.kind in CONFIRMED_KINDS:
             if not ctx.confirm(f"{tool.name}({json.dumps(args)[:300]})"):
                 return ToolOutput({"ok": False, "error": "The editor declined this action."})

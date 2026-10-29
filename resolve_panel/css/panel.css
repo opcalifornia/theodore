@@ -205,6 +205,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-weight: 600;
 }
 #chat-send-btn:hover { background: #4a3a26; }
+#attach-btn { font-size: 18px; line-height: 1; width: 38px; padding: 8px 0; color: var(--text-dim); }
+body.dropping #chat-log { outline: 2px dashed var(--accent); outline-offset: -6px; }
 
 /* The agent's two confirmations (deleting, starting a render). */
 #confirm-bar {

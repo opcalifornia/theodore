@@ -558,6 +558,34 @@ function initChat() {
     autosize();
   };
   el('chat-send-btn').addEventListener('click', send);
+
+  // Videos go into the message as quoted paths, so the editor can still say
+  // what to do with them ("...and cut my footage the same way") before sending.
+  const addVideos = (paths) => {
+    const clean = paths.filter(Boolean);
+    if (!clean.length) return;
+    const quoted = clean.map((p) => `"${p}"`).join(' ');
+    const lead = clean.length === 1 ? 'Study this video:' : 'Study these videos:';
+    input.value = `${input.value.trim() ? input.value.trim() + '\n' : ''}${lead} ${quoted} `;
+    autosize();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
+  el('attach-btn').addEventListener('click', async () => {
+    try { addVideos(await window.theodore.pickVideos()); } catch (err) { showError(err); }
+  });
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    document.body.classList.add('dropping');
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (e.target === document.documentElement || !e.relatedTarget) document.body.classList.remove('dropping');
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    document.body.classList.remove('dropping');
+    addVideos([...(e.dataTransfer.files || [])].map((f) => window.theodore.pathForFile(f)));
+  });
   input.addEventListener('input', autosize);
   input.addEventListener('keydown', (e) => {
     // Enter sends, Shift+Enter is a newline -- the way a chat box works.

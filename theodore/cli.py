@@ -2411,6 +2411,24 @@ def install_panel(dest: Optional[str], dry_run: bool):
                "Workspace -> Workflow Integrations -> Theodore.")
 
 
+@cli.command(name="study")
+@click.argument("video", type=click.Path(exists=True, dir_okay=False))
+@click.option("--name", default=None, help="Name to save it under (default: the file name).")
+@click.option("--no-vision", is_flag=True, help="Skip Claude's shot-by-shot look (no overlay/shot-size log).")
+@click.option("--no-transcript", is_flag=True, help="Skip transcription.")
+def study_cmd(video: str, name: Optional[str], no_vision: bool, no_transcript: bool):
+    """Study a finished video: cuts, transitions, pacing, beat sync, speech,
+    overlays -- and write an edit blueprint Claude can replicate."""
+    from theodore.study import reference
+
+    result = reference.study(Path(video), name, use_vision=not no_vision,
+                             use_transcript=not no_transcript,
+                             progress=lambda msg: click.echo(f"  {msg}..."))
+    click.echo("")
+    click.echo((Path(result["dir"]) / "report.md").read_text())
+    click.echo(f"Saved to {result['dir']}")
+
+
 @cli.command(name="agent-tools")
 def agent_tools_cmd():
     """List every tool the agent can use, grouped by how risky it is."""
