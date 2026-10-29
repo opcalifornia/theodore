@@ -49,13 +49,22 @@ function createWindow() {
       sandbox: true,
     },
   });
-  mainWindow.loadFile('index.html');
+  // Resolve runs this app as a daemon and only launches it when it isn't
+  // already running. If closing the window left the app alive (the macOS
+  // default), picking Theodore from Workspace -> Workflow Integrations again
+  // would find a windowless process with nothing to show -- the panel would
+  // just never appear. Quit with the window, as Blackmagic's SamplePlugin
+  // does, so the next pick is a clean relaunch.
+  mainWindow.on('close', () => app.quit());
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 
 app.whenReady().then(createWindow);
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+app.on('window-all-closed', () => app.quit());
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
 app.on('before-quit', () => {
@@ -124,15 +133,33 @@ let activeChat = null;
 
 ipcMain.on('theodore:chatStart', (event, project) => {
   if (activeChat) activeChat.stop();
-  activeChat = bridge.startAgentChat(
-    undefined,
-    project,
-    (chunk) => { if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-output', chunk); },
-    (info) => {
-      activeChat = null;
-      if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-exit', info);
-    },
-  );
+  // A replaced chat's process exits AFTER its successor has started. Its
+  // output and exit belong to nobody now: forwarding them would null out the
+  // live chat here and tell the renderer "chat ended", so every following
+  // message would spawn a fresh agent with no memory of the conversation.
+  let chat;
+  try {
+    chat = bridge.startAgentChat(
+      undefined,
+      project,
+      (chunk) => {
+        if (activeChat !== chat || event.sender.isDestroyed()) return;
+        event.sender.send('theodore:chat-output', chunk);
+      },
+      (info) => {
+        if (activeChat !== chat) return;
+        activeChat = null;
+        if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-exit', info);
+      },
+    );
+  } catch (err) {
+    // e.g. a missing theodore-panel-config.json. Thrown from an ipcMain.on
+    // listener it would vanish, leaving the panel "working" forever.
+    activeChat = null;
+    if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-exit', { code: 1, error: err.message });
+    return;
+  }
+  activeChat = chat;
 });
 
 ipcMain.on('theodore:chatSend', (_e, line) => {

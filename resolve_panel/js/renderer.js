@@ -559,7 +559,6 @@ async function init() {
   initIngestTab();
   initQuickActions();
   initChat();
-  ensureChatSession();
 
   el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;
@@ -615,7 +614,11 @@ async function init() {
   await pollResolveStatus();
   setInterval(pollResolveStatus, RESOLVE_POLL_INTERVAL_MS);
 
+  // Start the chat only once the project picker has settled: starting it
+  // first meant the very first message found a "changed" project and
+  // restarted the agent mid-send.
   await safely(refreshProjects);
+  ensureChatSession();
 }
 
 init();
