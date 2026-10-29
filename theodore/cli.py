@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 import time
@@ -2220,13 +2221,14 @@ def agent(instruction: tuple, yes: bool, model: Optional[str], max_steps: int):
 @click.option("--project", default="", help="Theodore project (for transcript-based tools). Optional.")
 @click.option("--model", default=None)
 @click.option("--max-steps", type=int, default=40, show_default=True)
-def agent_chat(project: str, model: Optional[str], max_steps: int):
+@click.option("--json", "as_json", is_flag=True,
+              help="Emit one JSON event per line (what the Resolve panel renders).")
+def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool):
     """A running conversation with the agent -- what the Resolve panel's chat
     box talks to. One instruction per line on stdin; the agent keeps the whole
     conversation, so "now do the same for the second timeline" works.
 
-    Confirmations (deleting, starting a render) print a `[confirm]` line and
-    wait for a `yes` or `no` line.
+    Confirmations (deleting, starting a render) wait for a `yes` or `no` line.
     """
     from theodore.agent import loop as agent_loop
     from theodore.agent import tools as agent_tools
@@ -2235,40 +2237,60 @@ def agent_chat(project: str, model: Optional[str], max_steps: int):
     if not config.ANTHROPIC_API_KEY:
         raise click.ClickException("ANTHROPIC_API_KEY isn't set -- run `theodore setup`.")
 
+    def out(kind: str, **fields):
+        """One event, in whichever dialect the reader speaks."""
+        if as_json:
+            click.echo(json.dumps({"t": kind, **fields}))
+            return
+        if kind == "delta":
+            click.echo(fields["text"], nl=False)
+        elif kind == "say_end":
+            click.echo()
+        elif kind in ("say", "note", "error", "ready"):
+            click.echo(fields.get("text", ""))
+        elif kind == "tool":
+            click.echo(f"  > {fields['name']} {json.dumps(fields['input'])[:140]}")
+        elif kind == "result":
+            if not fields["ok"]:
+                click.echo(f"    failed: {fields['error']}")
+            elif fields["frame"]:
+                click.echo("    (looked at the frame)")
+        elif kind == "confirm":
+            click.echo(f"[confirm] {fields['text']} -- reply yes or no")
+
     def read_line() -> Optional[str]:
         line = sys.stdin.readline()
         return None if line == "" else line.strip()
 
     def confirm(description: str) -> bool:
-        click.echo(f"[confirm] {description} -- reply yes or no")
-        answer = read_line()
-        return (answer or "").lower() in ("y", "yes")
+        out("confirm", text=description)
+        return (read_line() or "").lower() in ("y", "yes")
 
-    def connect_ctx():
-        h = _connect_or_die()
-        return agent_tools.AgentContext(
-            connect=resolve_connection.connect, confirm=confirm,
-            project_name=h.project.GetName(), theodore_project=project,
-        ), h
-
-    ctx, handles = connect_ctx()
+    handles = _connect_or_die()
+    ctx = agent_tools.AgentContext(
+        connect=resolve_connection.connect, confirm=confirm,
+        project_name=handles.project.GetName(), theodore_project=project,
+    )
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     history: list = []
 
     def show(kind, *a):
-        if kind == "say":
-            click.echo(a[0])
+        if kind == "delta":
+            out("delta", text=a[0])
+        elif kind == "say_end":
+            out("say_end")
+        elif kind == "say":
+            out("say", text=a[0])
         elif kind == "tool":
-            click.echo(f"  > {a[0]} {json.dumps(a[1])[:140]}")
+            out("tool", name=a[0], input=a[1])
         elif kind == "result":
-            if not a[1].get("ok", True):
-                click.echo(f"    failed: {a[1].get('error')}")
-            elif a[2]:
-                click.echo("    (looked at the frame)")
+            out("result", name=a[0], ok=a[1].get("ok", True),
+                error=a[1].get("error"), frame=bool(a[2]))
         elif kind == "nudge":
-            click.echo(f"  ! {a[0]}")
+            out("note", text=a[0])
 
-    click.echo(f"Connected to '{ctx.project_name}' via {handles.via}. What would you like to do?")
+    out("ready", text=f"Connected to '{ctx.project_name}' via {handles.via}. What would you like to do?",
+        project=ctx.project_name, via=handles.via)
     while True:
         line = read_line()
         if line is None or line.lower() in ("exit", "quit"):
@@ -2281,18 +2303,89 @@ def agent_chat(project: str, model: Optional[str], max_steps: int):
                 max_steps=max_steps, on_event=show, history=history,
             )
         except resolve_connection.ResolveConnectionError as exc:
-            click.echo(f"Lost Resolve: {exc}")
+            out("error", text=f"Lost Resolve: {exc}")
+            out("done")
             continue
         except anthropic.APIError as exc:
-            click.echo(f"Claude API error: {exc}")
+            out("error", text=f"Claude API error: {exc}")
+            out("done")
             continue
         history = result.messages
         if result.stopped_reason == "max_steps":
-            click.echo(f"(stopped after {max_steps} steps without finishing)")
+            out("note", text=f"Stopped after {max_steps} steps without finishing.")
         elif result.mutated and not result.verified:
-            click.echo("(edited, but never visually verified)")
+            out("note", text="Edited, but the result was never visually verified.")
         if result.checkpoints and ctx.safety.protected_this_run:
-            click.echo(f"(checkpoint: {ctx.safety.checkpoints[-1].name} -- say \"undo that\" to restore)")
+            out("note", text=f"Checkpoint: {ctx.safety.checkpoints[-1].name} -- say \"undo that\" to restore.")
+        out("done")
+
+
+def _panel_install_candidates() -> list:
+    home = Path.home()
+    if sys.platform == "darwin":
+        base = "Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/Theodore"
+        return [Path("/Library/Application Support") / base,
+                home / "Library/Application Support" / base]
+    if sys.platform.startswith("win"):
+        pd = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+        return [pd / "Blackmagic Design/DaVinci Resolve/Support/Workflow Integration Plugins/Theodore"]
+    return []
+
+
+@cli.command(name="install-panel")
+@click.option("--dest", default=None, type=click.Path(),
+              help="Panel folder to update (default: the existing Theodore panel Resolve loads).")
+@click.option("--dry-run", is_flag=True)
+def install_panel(dest: Optional[str], dry_run: bool):
+    """Update the Theodore panel Resolve actually loads.
+
+    Resolve runs the panel from its own Workflow Integration Plugins folder --
+    a COPY of resolve_panel/ -- so pulling new code into the repo changes
+    nothing in Resolve until that copy is refreshed. This does it, keeping your
+    theodore-panel-config.json and the installed node_modules.
+    """
+    source = Path(__file__).resolve().parent.parent / "resolve_panel"
+    if not (source / "main.js").exists():
+        raise click.ClickException(f"Can't find the panel source at {source}.")
+
+    if dest:
+        target = Path(dest).expanduser()
+    else:
+        found = [c for c in _panel_install_candidates() if (c / "main.js").exists()]
+        if not found:
+            raise click.ClickException(
+                "Couldn't find an installed Theodore panel. Pass --dest with the folder "
+                "inside 'Workflow Integration Plugins' (see resolve_panel/README.md).")
+        target = found[0]
+
+    keep = {"theodore-panel-config.json"}
+    skip_dirs = {"node_modules", "test", ".git"}
+    click.echo(f"Source:      {source}")
+    click.echo(f"Destination: {target}")
+
+    copied = []
+    for path in sorted(source.rglob("*")):
+        rel = path.relative_to(source)
+        if path.is_dir() or rel.parts[0] in skip_dirs or rel.name in keep:
+            continue
+        copied.append(rel)
+    if dry_run:
+        click.echo(f"\n{len(copied)} files would be updated. (dry run -- nothing copied)")
+        return
+
+    try:
+        for rel in copied:
+            (target / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / rel, target / rel)
+        if not (target / "node_modules").exists() and (source / "node_modules").exists():
+            shutil.copytree(source / "node_modules", target / "node_modules", symlinks=True)
+    except PermissionError as exc:
+        raise click.ClickException(
+            f"No permission to write {target}: {exc}\nRe-run with sudo: "
+            "sudo ./.venv/bin/theodore install-panel")
+    click.echo(f"\nUpdated {len(copied)} files. Config and node_modules were left alone.")
+    click.echo("Now close the Theodore panel window and reopen it from "
+               "Workspace -> Workflow Integrations -> Theodore.")
 
 
 @cli.command(name="agent-tools")

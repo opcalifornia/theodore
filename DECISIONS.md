@@ -254,3 +254,20 @@ unlocks the transcript tools. Confirmations travel over the same pipe as a
 `[confirm]` line the panel turns into Yes/No buttons. The old `chat`
 command is untouched. Cost: the old "move haylee.q03 after marcus.q04"
 edit-list phrasing is no longer in the panel's box (it's still `theodore chat`).
+
+### Make the chat feel like the Claude app
+
+First real use failed: the editor's Resolve was still running the OLD panel
+(it errored with the old `theodore chat` "no analysis yet" message). Resolve
+loads the panel from its Workflow Integration Plugins folder -- a copy -- so
+a `git pull` never reaches it. Added `theodore install-panel`, which refreshes
+that copy in place and keeps the editor's config and node_modules.
+
+Then the chat itself: replies stream word by word (`messages.stream`), are
+formatted (a small escaped-first markdown renderer -- model text can never
+inject markup), tool activity folds into a collapsible "Used N tools" line in
+the order it happened, a typing indicator shows while Claude works, Enter
+sends / Shift+Enter is a newline, and the session starts as soon as the panel
+opens. The panel's other buttons moved into a collapsed "Tools" drawer so the
+conversation is the window. The REPL speaks one JSON event per line to the
+panel (`agent-chat --json`); plain text stays the terminal default.

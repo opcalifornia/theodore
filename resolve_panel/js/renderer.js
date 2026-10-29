@@ -312,93 +312,254 @@ function initIngestTab() {
   });
 }
 
-// Chat: a running `theodore chat --project X` conversation instead of
-// one-shot `theodore say` calls, so instructions build on shared context
-// (the REPL's meta-commands: pending/versions/build/help) without
-// re-invoking the CLI per line. The child process doesn't echo what's
-// typed (it reads over a pipe, not a tty), so the user's own line is
-// appended locally before sending -- otherwise only Theodore's replies
-// would ever appear.
+// The chat is a conversation with Claude, which operates the open Resolve
+// project. It talks to `theodore agent-chat --json`: one JSON event per line
+// (streamed text, tool steps, confirmations, "done"), rendered here the way a
+// chat app would -- words arriving as they're written, tool activity folded
+// into a collapsible "steps" line, formatted replies, a typing indicator.
 let chatProject = null;
-let currentReplyBody = null;
-// Theodore's replies stream in as raw stdout chunks over one long-lived
-// pipe, with no per-line framing -- there is no event marking "a reply
-// finished", only "more text arrived". A new block can't just be opened
-// the instant a line is sent: the PREVIOUS reply (e.g. the startup
-// banner) may still be mid-flight, and switching blocks early would
-// silently orphan its tail end into whatever block came next. Instead
-// this flag defers opening the next block until the first chunk actually
-// arrives after sending, so a still-streaming previous reply keeps
-// landing where it started.
-let awaitingNewReplyBlock = false;
+let chatBuffer = '';
+let chatBusy = false;
+let turn = null;   // the reply currently being built
 
-// No block is pre-created for the session-start banner: it doesn't arrive
-// until after the child process spawns, and creating one eagerly would
-// plant it in the DOM ahead of the user's own message, which sends
-// immediately afterward in the same synchronous call -- reading as a
-// reply that showed up before the question that prompted it. Both the
-// banner and every later reply instead go through the same lazy path:
-// awaitingNewReplyBlock says a block is owed, and onChatOutput only
-// creates it once the first byte actually arrives, so DOM order always
-// matches chronological order.
 function ensureChatSession() {
-  // The agent chat works on whatever Resolve has open, so it needs no
-  // Theodore project; picking one only unlocks the transcript-based tools.
-  // Restart only when that choice changes.
+  // The agent works on whatever Resolve has open, so it needs no Theodore
+  // project; picking one only unlocks the transcript-based tools. Restart
+  // only when that choice changes.
   const key = state.project || '';
   if (chatProject === key) return;
   const first = chatProject === null;
   chatProject = key;
-  addMessage('system', null, first
-    ? 'Connecting Claude to Resolve...'
-    : `switched to project "${key || '(none)'}"`);
+  chatBuffer = '';
+  turn = null;
+  if (!first) addMessage('system', null, `switched to project "${key || '(none)'}"`);
+  setBusy(true);
+  showTyping(true);
   window.theodore.startChat(key);
+}
+
+function scrollChat() {
+  const log = el('chat-log');
+  log.scrollTop = log.scrollHeight;
+}
+
+function showTyping(on) {
+  let dots = el('typing-dots');
+  if (on && !dots) {
+    dots = document.createElement('div');
+    dots.id = 'typing-dots';
+    dots.innerHTML = '<span></span><span></span><span></span>';
+  }
+  if (on) { el('chat-log').appendChild(dots); scrollChat(); }
+  else if (dots) dots.remove();
+}
+
+function setBusy(busy) {
+  chatBusy = busy;
+  el('chat-send-btn').disabled = busy;
+  el('chat-input').placeholder = busy
+    ? 'Claude is working...'
+    : 'Tell Claude what to do in Resolve -- e.g. "cut the ums and render a vertical version"';
+}
+
+function newTurn() {
+  return { reply: null, raw: '', steps: null, stepList: null, stepCount: 0, lastStep: null };
+}
+
+function ensureReply() {
+  if (!turn) turn = newTurn();
+  if (!turn.reply) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg msg-assistant';
+    turn.reply = document.createElement('div');
+    turn.reply.className = 'md';
+    wrap.appendChild(turn.reply);
+    el('chat-log').appendChild(wrap);
+    turn.raw = '';
+  }
+}
+
+function renderReply() {
+  turn.reply.innerHTML = window.renderMarkdown(turn.raw);
+  scrollChat();
+}
+
+function ensureSteps() {
+  if (!turn) turn = newTurn();
+  if (!turn.steps) {
+    turn.steps = document.createElement('details');
+    turn.steps.className = 'steps';
+    turn.steps.open = true;
+    turn.steps.innerHTML = '<summary></summary><div class="step-list"></div>';
+    turn.stepList = turn.steps.querySelector('.step-list');
+    el('chat-log').appendChild(turn.steps);
+  }
+}
+
+function summariseSteps(finished) {
+  if (!turn || !turn.steps) return;
+  const n = turn.stepCount;
+  turn.steps.querySelector('summary').textContent =
+    finished ? `Used ${n} tool${n === 1 ? '' : 's'}` : `Working... ${n} step${n === 1 ? '' : 's'}`;
+}
+
+// Tools used after Claude has started writing belong in a NEW steps line
+// below that text, not folded back into the group above it.
+function closeStepsGroup() {
+  if (!turn || !turn.steps) return;
+  summariseSteps(true);
+  turn.steps.open = false;
+  turn.steps = null;
+  turn.stepCount = 0;
+}
+
+function handleAgentEvent(ev) {
+  switch (ev.t) {
+    case 'ready':
+      showTyping(false);
+      setBusy(false);
+      addMessage('system', null, ev.text);
+      break;
+    case 'delta':
+      showTyping(false);
+      closeStepsGroup();
+      ensureReply();
+      turn.raw += ev.text;
+      renderReply();
+      break;
+    case 'say':
+      showTyping(false);
+      closeStepsGroup();
+      ensureReply();
+      turn.raw = ev.text;
+      renderReply();
+      break;
+    case 'say_end':
+      // The next stretch of text (after tool calls) is a new paragraph block.
+      if (turn) turn.reply = null;
+      showTyping(true);
+      break;
+    case 'tool': {
+      showTyping(false);
+      ensureSteps();
+      if (turn.reply) turn.reply = null;
+      turn.stepCount += 1;
+      const line = document.createElement('div');
+      line.className = 'step';
+      const args = JSON.stringify(ev.input || {});
+      line.textContent = `${ev.name}${args === '{}' ? '' : ' ' + args.slice(0, 110)}`;
+      turn.stepList.appendChild(line);
+      turn.lastStep = line;
+      summariseSteps(false);
+      showTyping(true);
+      scrollChat();
+      break;
+    }
+    case 'result':
+      if (turn && turn.lastStep) {
+        turn.lastStep.classList.add(ev.ok ? 'ok' : 'failed');
+        if (!ev.ok && ev.error) turn.lastStep.textContent += `  -- ${ev.error}`;
+        if (ev.frame) turn.lastStep.textContent += '  (looked at the frame)';
+      }
+      break;
+    case 'confirm':
+      showTyping(false);
+      el('confirm-text').textContent = ev.text;
+      el('confirm-bar').classList.remove('hidden');
+      break;
+    case 'note':
+      addMessage('system', null, ev.text);
+      break;
+    case 'error':
+      showTyping(false);
+      addMessage('system', null, ev.text);
+      break;
+    case 'done':
+      showTyping(false);
+      summariseSteps(true);
+      if (turn && turn.steps) turn.steps.open = false;
+      turn = null;
+      setBusy(false);
+      el('chat-input').focus();
+      break;
+    default:
+      break;
+  }
+}
+
+function handleChatStdout(text) {
+  chatBuffer += text;
+  let nl;
+  while ((nl = chatBuffer.indexOf('\n')) !== -1) {
+    const line = chatBuffer.slice(0, nl).trim();
+    chatBuffer = chatBuffer.slice(nl + 1);
+    if (!line) continue;
+    let ev;
+    try { ev = JSON.parse(line); } catch (err) { addMessage('system', null, line); continue; }
+    handleAgentEvent(ev);
+  }
 }
 
 function initChat() {
   window.theodore.onChatOutput((chunk) => {
-    if (!currentReplyBody || awaitingNewReplyBlock) {
-      currentReplyBody = startBlock('theodore', 'Theodore');
-      awaitingNewReplyBlock = false;
+    if (chunk.stream === 'stderr') {
+      // Tracebacks and startup errors (e.g. no API key) -- show, don't hide.
+      showTyping(false);
+      addMessage('system', null, chunk.text.trim());
+      return;
     }
-    appendToBody(currentReplyBody, chunk.text);
-    // The agent asks before deleting or starting a render by printing a
-    // "[confirm]" line and waiting; surface it as buttons so answering is a
-    // click, not typing "yes".
-    if (chunk.text.includes('[confirm]')) el('confirm-bar').classList.remove('hidden');
+    handleChatStdout(chunk.text);
   });
+  window.theodore.onChatExit((info) => {
+    showTyping(false);
+    addMessage('system', null, `Claude chat ended${info.error ? ': ' + info.error : ''}. Send a message to start it again.`);
+    chatProject = null;
+    turn = null;
+    chatBuffer = '';
+    setBusy(false);
+    el('confirm-bar').classList.add('hidden');
+  });
+
   const answer = (reply) => {
     el('confirm-bar').classList.add('hidden');
-    addMessage('user', 'You', reply);
+    addMessage('user', null, reply === 'yes' ? 'Yes, go ahead.' : 'No, don\'t.');
+    showTyping(true);
     window.theodore.sendChat(reply);
   };
   el('confirm-yes-btn').addEventListener('click', () => answer('yes'));
   el('confirm-no-btn').addEventListener('click', () => answer('no'));
-  window.theodore.onChatExit((info) => {
-    addMessage('system', null, `chat session ended${info.error ? ': ' + info.error : ''}`);
-    chatProject = null;
-    currentReplyBody = null;
-    el('confirm-bar').classList.add('hidden');
-  });
 
+  const input = el('chat-input');
+  const autosize = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    input.style.overflowY = input.scrollHeight > 140 ? 'auto' : 'hidden';
+  };
   const send = () => {
-    const input = el('chat-input');
     const line = input.value.trim();
-    if (!line) return;
+    if (!line || chatBusy) return;
     ensureChatSession();
-    addMessage('user', 'You', line);
-    awaitingNewReplyBlock = true;
+    addMessage('user', null, line);
+    turn = newTurn();
+    setBusy(true);
+    showTyping(true);
     window.theodore.sendChat(line);
     input.value = '';
+    autosize();
   };
   el('chat-send-btn').addEventListener('click', send);
-  el('chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+  input.addEventListener('input', autosize);
+  input.addEventListener('keydown', (e) => {
+    // Enter sends, Shift+Enter is a newline -- the way a chat box works.
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
 }
 
 async function init() {
   initIngestTab();
   initQuickActions();
   initChat();
+  ensureChatSession();
 
   el('project-select').addEventListener('change', (e) => {
     state.project = e.target.value;

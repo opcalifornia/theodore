@@ -44,7 +44,7 @@ def test_each_message_gets_its_own_checkpoint(monkeypatch):
 
     assert out.exit_code == 0, out.output
     assert len(project.timelines) == 3          # original + one checkpoint per instruction
-    assert "checkpoint:" in out.output
+    assert "Checkpoint:" in out.output
 
 
 def test_confirmation_is_asked_over_stdin_and_a_no_is_respected(monkeypatch):
@@ -85,3 +85,78 @@ def test_missing_api_key_is_a_clear_error(monkeypatch):
     monkeypatch.setattr(cli_module.config, "ANTHROPIC_API_KEY", None)
     out = CliRunner().invoke(cli, ["agent-chat"], input="exit\n")
     assert out.exit_code != 0 and "ANTHROPIC_API_KEY" in out.output
+
+
+class _Stream:
+    def __init__(self, response, pieces):
+        self._r, self._p = response, pieces
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    @property
+    def text_stream(self):
+        return iter(self._p)
+
+    def get_final_message(self):
+        return self._r
+
+
+class StreamingClient(ScriptedClient):
+    """A client whose replies arrive in pieces, like the real SDK's."""
+
+    def __init__(self, *responses, pieces=None):
+        super().__init__(*responses)
+        self.pieces = pieces or {}
+
+    def stream(self, **kw):
+        response = self.create(**kw)
+        words = "".join(b.text for b in response.content if b.type == "text")
+        return _Stream(response, self.pieces.get(words, [words[:4], words[4:]] if words else []))
+
+
+def test_replies_stream_in_pieces_when_the_client_supports_it(monkeypatch):
+    resolve, project, tl = make_resolve()
+    client = StreamingClient(reply(text("Hello there")))
+    _wire(monkeypatch, client, resolve, project)
+
+    out = CliRunner().invoke(cli, ["agent-chat", "--json"], input="hi\nexit\n")
+
+    events = [json.loads(l) for l in out.output.splitlines() if l.startswith("{")]
+    deltas = [e["text"] for e in events if e["t"] == "delta"]
+    assert len(deltas) == 2 and "".join(deltas) == "Hello there"
+    kinds = [e["t"] for e in events]
+    assert kinds.index("say_end") < kinds.index("done")
+    assert "say" not in kinds                     # streamed once, not repeated in full
+
+
+def test_json_mode_is_one_parseable_event_per_line(monkeypatch):
+    resolve, project, tl = make_resolve()
+    client = ScriptedClient(
+        reply(call("get_timeline_info")), reply(text("One clip.")))
+    _wire(monkeypatch, client, resolve, project)
+
+    out = CliRunner().invoke(cli, ["agent-chat", "--json"], input="look\nexit\n")
+
+    events = [json.loads(l) for l in out.output.splitlines()]      # every line parses
+    kinds = [e["t"] for e in events]
+    assert kinds[0] == "ready" and events[0]["project"] == "Test Project"
+    assert {"tool", "result", "say", "done"} <= set(kinds)
+    assert next(e for e in events if e["t"] == "tool")["name"] == "get_timeline_info"
+    assert kinds[-1] == "done"
+
+
+def test_json_mode_confirm_event_waits_for_an_answer(monkeypatch):
+    resolve, project, tl = make_resolve()
+    tl.markers[100] = {"color": "Blue"}
+    client = ScriptedClient(reply(call("delete_marker", frame=86500)), reply(text("Left it.")))
+    _wire(monkeypatch, client, resolve, project)
+
+    out = CliRunner().invoke(cli, ["agent-chat", "--json"], input="delete it\nno\nexit\n")
+
+    events = [json.loads(l) for l in out.output.splitlines()]
+    assert any(e["t"] == "confirm" and "delete_marker" in e["text"] for e in events)
+    assert 100 in tl.markers

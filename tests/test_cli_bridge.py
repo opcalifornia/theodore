@@ -181,3 +181,43 @@ def test_bridge_status_nudges_toward_the_bridge_when_on_the_fallback(tmp_path, m
     assert result.exit_code == 0, result.output
     assert "CONNECTED via external scripting" in result.output
     assert "theodore install-bridge" in result.output
+
+
+# ---------------------------------------------------------------------------
+# install-panel -- Resolve runs a COPY of resolve_panel/, so a pull alone
+# changes nothing until the copy is refreshed.
+# ---------------------------------------------------------------------------
+
+def _installed_panel(tmp_path):
+    dest = tmp_path / "Plugins" / "Theodore"
+    (dest / "node_modules" / "electron").mkdir(parents=True)
+    (dest / "node_modules" / "electron" / "marker").write_text("keep me")
+    (dest / "theodore-panel-config.json").write_text('{"theodoreExecutable": "/mine"}')
+    (dest / "main.js").write_text("// old panel")
+    return dest
+
+
+def test_install_panel_refreshes_code_but_keeps_config_and_node_modules(tmp_path):
+    dest = _installed_panel(tmp_path)
+    result = CliRunner().invoke(cli, ["install-panel", "--dest", str(dest)])
+
+    assert result.exit_code == 0, result.output
+    assert "old panel" not in (dest / "main.js").read_text()
+    assert "startAgentChat" in (dest / "main.js").read_text() or (dest / "theodore_bridge.js").exists()
+    assert (dest / "theodore-panel-config.json").read_text() == '{"theodoreExecutable": "/mine"}'
+    assert (dest / "node_modules" / "electron" / "marker").read_text() == "keep me"
+    assert not (dest / "test").exists()
+
+
+def test_install_panel_dry_run_changes_nothing(tmp_path):
+    dest = _installed_panel(tmp_path)
+    result = CliRunner().invoke(cli, ["install-panel", "--dest", str(dest), "--dry-run"])
+    assert result.exit_code == 0 and "dry run" in result.output
+    assert (dest / "main.js").read_text() == "// old panel"
+
+
+def test_install_panel_without_an_install_says_how_to_proceed(monkeypatch):
+    from theodore import cli as cli_module
+    monkeypatch.setattr(cli_module, "_panel_install_candidates", lambda: [])
+    result = CliRunner().invoke(cli, ["install-panel"])
+    assert result.exit_code != 0 and "--dest" in result.output

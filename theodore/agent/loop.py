@@ -117,9 +117,20 @@ def run_agent(
 
     for _ in range(max_steps):
         result.steps += 1
-        response = client.messages.create(
-            model=model, max_tokens=4096, system=system, tools=tools, messages=messages,
-        )
+        request = dict(model=model, max_tokens=4096, system=system, tools=tools, messages=messages)
+        streamed = False
+        if on_event is not None and hasattr(client.messages, "stream"):
+            # Stream the words as they're written, so the chat reads like a
+            # conversation instead of a long pause and then a wall of text.
+            with client.messages.stream(**request) as stream:
+                for piece in stream.text_stream:
+                    streamed = True
+                    emit("delta", piece)
+                response = stream.get_final_message()
+            if streamed:
+                emit("say_end")
+        else:
+            response = client.messages.create(**request)
         usage = getattr(response, "usage", None)
         if usage:
             result.input_tokens += getattr(usage, "input_tokens", 0)
@@ -128,7 +139,7 @@ def run_agent(
         messages.append({"role": "assistant", "content": _assistant_blocks(response.content)})
         text = "".join(b.text for b in response.content if b.type == "text").strip()
         calls = [b for b in response.content if b.type == "tool_use"]
-        if text:
+        if text and not streamed:
             emit("say", text)
 
         if not calls:

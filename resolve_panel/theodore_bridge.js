@@ -212,7 +212,7 @@ function startChat(config, project, onChunk, onExit, spawnImpl) {
 // optional and only unlocks the transcript-based tools (silence, cuts,
 // captions) when given.
 function startAgentChat(config, project, onChunk, onExit, spawnImpl) {
-  const args = ['agent-chat'];
+  const args = ['agent-chat', '--json'];
   if (typeof project === 'string' && project) args.push('--project', project);
   return spawnChat(config, args, onChunk, onExit, spawnImpl);
 }

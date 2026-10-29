@@ -342,7 +342,7 @@ test('startAgentChat spawns `agent-chat` and omits --project when none is given'
   let seen;
   const child = makeFakeChatChild();
   bridge.startAgentChat(config, '', () => {}, () => {}, (cmd, args) => { seen = args; return child; });
-  assert.deepEqual(seen, ['agent-chat']);
+  assert.deepEqual(seen, ['agent-chat', '--json']);
 });
 
 test('startAgentChat passes --project when one is chosen, and send() reaches stdin', () => {
@@ -350,7 +350,7 @@ test('startAgentChat passes --project when one is chosen, and send() reaches std
   let seen;
   const child = makeFakeChatChild();
   const session = bridge.startAgentChat(config, 'docproj', () => {}, () => {}, (cmd, args) => { seen = args; return child; });
-  assert.deepEqual(seen, ['agent-chat', '--project', 'docproj']);
+  assert.deepEqual(seen, ['agent-chat', '--json', '--project', 'docproj']);
   session.send('cut the ums');
   assert.ok(child.stdin.written.join('').includes('cut the ums\n'));
 });

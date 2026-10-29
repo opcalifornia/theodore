@@ -22,6 +22,8 @@
   </header>
 
   <main id="single-pane">
+    <details id="tools-drawer">
+      <summary>Tools</summary>
     <section id="ingest-row">
       <button id="pick-source-btn">Choose footage...</button>
       <button id="from-timeline-btn" title="Ingest the audio already synced onto the current Resolve timeline -- no file picker needed">Ingest from Timeline</button>
@@ -57,18 +59,21 @@
       <button class="action-btn" id="cut-timeline-apply-btn" data-action="cut-timeline-apply" title="Build the cut previewed above onto a new duplicate timeline" disabled>Apply Cut</button>
     </section>
 
+    </details>
+
     <div id="chat-log" class="console chat-log"></div>
     <div id="confirm-bar" class="hidden">
-      <span>Claude is asking before it goes ahead:</span>
+      <span id="confirm-text">Claude is asking before it goes ahead.</span>
       <button id="confirm-yes-btn">Yes, do it</button>
       <button id="confirm-no-btn">No</button>
     </div>
     <div id="chat-row">
-      <input id="chat-input" type="text" placeholder='Tell Claude what to do in Resolve -- e.g. "cut the ums and render a vertical version"'>
+      <textarea id="chat-input" rows="1" placeholder='Tell Claude what to do in Resolve -- e.g. "cut the ums and render a vertical version"'></textarea>
       <button id="chat-send-btn">Send</button>
     </div>
   </main>
 
+  <script src="js/markdown.js"></script>
   <script src="js/renderer.js"></script>
 </body>
 </html>

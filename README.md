@@ -561,6 +561,10 @@ the other timeline"), and shows **Yes / No buttons** when it needs to ask
 before deleting or rendering. It needs the bridge running. The same
 conversation is available in a terminal with `theodore agent-chat`.
 
+Resolve runs the panel from its own plugins folder, a *copy* of
+`resolve_panel/` -- after pulling new code, run `theodore install-panel` and
+reopen the panel, or Resolve keeps running the old one.
+
 ```bash
 theodore agent "add a marker at every cut, then render a vertical version"
 theodore agent undo that
