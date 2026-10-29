@@ -2320,16 +2320,34 @@ def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool
         out("done")
 
 
-def _panel_install_candidates() -> list:
+PANEL_PLUGIN_ID = "com.theodore.editor.panel"
+
+
+def _panel_plugin_roots() -> list:
     home = Path.home()
     if sys.platform == "darwin":
-        base = "Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins/Theodore"
-        return [Path("/Library/Application Support") / base,
-                home / "Library/Application Support" / base]
+        base = "Blackmagic Design/DaVinci Resolve/Workflow Integration Plugins"
+        return [Path("/Library/Application Support") / base, home / "Library/Application Support" / base]
     if sys.platform.startswith("win"):
         pd = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
-        return [pd / "Blackmagic Design/DaVinci Resolve/Support/Workflow Integration Plugins/Theodore"]
+        return [pd / "Blackmagic Design/DaVinci Resolve/Support/Workflow Integration Plugins"]
     return []
+
+
+def _panel_install_candidates() -> list:
+    """Installed panels, found by plugin id in their manifest -- not by folder
+    name, which is whatever the editor called it when they copied it in."""
+    found = []
+    for root in _panel_plugin_roots():
+        if not root.is_dir():
+            continue
+        for manifest in root.glob("*/manifest.xml"):
+            try:
+                if PANEL_PLUGIN_ID in manifest.read_text(errors="replace"):
+                    found.append(manifest.parent)
+            except OSError:
+                continue
+    return found
 
 
 @cli.command(name="install-panel")
@@ -2351,12 +2369,17 @@ def install_panel(dest: Optional[str], dry_run: bool):
     if dest:
         target = Path(dest).expanduser()
     else:
-        found = [c for c in _panel_install_candidates() if (c / "main.js").exists()]
+        found = _panel_install_candidates()
         if not found:
             raise click.ClickException(
                 "Couldn't find an installed Theodore panel. Pass --dest with the folder "
                 "inside 'Workflow Integration Plugins' (see resolve_panel/README.md).")
         target = found[0]
+
+    if target.resolve() == source.resolve():
+        click.echo(f"{target} is a link to this repo's resolve_panel/, so Resolve already runs "
+                   "the code you pulled. Just close and reopen the panel.")
+        return
 
     keep = {"theodore-panel-config.json"}
     skip_dirs = {"node_modules", "test", ".git"}

@@ -221,3 +221,29 @@ def test_install_panel_without_an_install_says_how_to_proceed(monkeypatch):
     monkeypatch.setattr(cli_module, "_panel_install_candidates", lambda: [])
     result = CliRunner().invoke(cli, ["install-panel"])
     assert result.exit_code != 0 and "--dest" in result.output
+
+
+def test_install_panel_finds_the_panel_by_plugin_id_whatever_its_folder_is_called(tmp_path, monkeypatch):
+    from theodore import cli as cli_module
+    root = tmp_path / "Workflow Integration Plugins"
+    dest = root / "resolve_panel copy"
+    (dest).mkdir(parents=True)
+    (dest / "manifest.xml").write_text("<Id>com.theodore.editor.panel</Id>")
+    (dest / "main.js").write_text("// old panel")
+    (root / "Other").mkdir()
+    (root / "Other" / "manifest.xml").write_text("<Id>com.someone.else</Id>")
+    monkeypatch.setattr(cli_module, "_panel_plugin_roots", lambda: [root])
+
+    result = CliRunner().invoke(cli, ["install-panel"])
+
+    assert result.exit_code == 0, result.output
+    assert "old panel" not in (dest / "main.js").read_text()
+
+
+def test_install_panel_recognises_a_symlink_to_the_repo(tmp_path):
+    from pathlib import Path
+    repo_panel = Path(__file__).resolve().parent.parent / "resolve_panel"
+    link = tmp_path / "Theodore"
+    link.symlink_to(repo_panel)
+    result = CliRunner().invoke(cli, ["install-panel", "--dest", str(link)])
+    assert result.exit_code == 0 and "already runs" in result.output
