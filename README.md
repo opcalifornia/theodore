@@ -554,6 +554,13 @@ only ever touches a duplicate timeline, never your edit.
 
 ## Talking to Claude in Resolve (the agent)
 
+**In Resolve:** open the Theodore panel (Workspace → Workflow Integrations →
+Theodore) and type in its chat box -- that is a Claude chat window that
+drives your open project, remembers the conversation ("now do the same for
+the other timeline"), and shows **Yes / No buttons** when it needs to ask
+before deleting or rendering. It needs the bridge running. The same
+conversation is available in a terminal with `theodore agent-chat`.
+
 ```bash
 theodore agent "add a marker at every cut, then render a vertical version"
 theodore agent undo that

@@ -240,3 +240,17 @@ folder isn't in this repo), voice and dashboard front doors, an MCP server for
 Claude Desktop, scene-cut detection / Fairlight / Fusion / color-grade tools.
 `call_resolve_api` reaches those methods meanwhile. The panel's chat box still
 talks to the older `theodore chat`, not the agent.
+
+### The panel's chat box is the agent now
+
+The brief was "a Claude chat window inside DaVinci Resolve". The panel already
+lived there (Workflow Integrations) and already had a chat box, wired to the
+older `theodore chat` edit-list REPL. Rather than build a second window, the
+box now runs `theodore agent-chat`. That REPL keeps the whole conversation
+(old frames are dropped from carried history so requests don't bloat), gives
+every instruction its own checkpoint and verification, and needs no Theodore
+project -- it works on whatever Resolve has open; choosing a project only
+unlocks the transcript tools. Confirmations travel over the same pipe as a
+`[confirm]` line the panel turns into Yes/No buttons. The old `chat`
+command is untouched. Cost: the old "move haylee.q03 after marcus.q04"
+edit-list phrasing is no longer in the panel's box (it's still `theodore chat`).

@@ -342,10 +342,17 @@ let awaitingNewReplyBlock = false;
 // creates it once the first byte actually arrives, so DOM order always
 // matches chronological order.
 function ensureChatSession() {
-  if (!state.project || chatProject === state.project) return;
-  chatProject = state.project;
-  addMessage('system', null, `switched to project "${state.project}"`);
-  window.theodore.startChat(state.project);
+  // The agent chat works on whatever Resolve has open, so it needs no
+  // Theodore project; picking one only unlocks the transcript-based tools.
+  // Restart only when that choice changes.
+  const key = state.project || '';
+  if (chatProject === key) return;
+  const first = chatProject === null;
+  chatProject = key;
+  addMessage('system', null, first
+    ? 'Connecting Claude to Resolve...'
+    : `switched to project "${key || '(none)'}"`);
+  window.theodore.startChat(key);
 }
 
 function initChat() {
@@ -355,18 +362,29 @@ function initChat() {
       awaitingNewReplyBlock = false;
     }
     appendToBody(currentReplyBody, chunk.text);
+    // The agent asks before deleting or starting a render by printing a
+    // "[confirm]" line and waiting; surface it as buttons so answering is a
+    // click, not typing "yes".
+    if (chunk.text.includes('[confirm]')) el('confirm-bar').classList.remove('hidden');
   });
+  const answer = (reply) => {
+    el('confirm-bar').classList.add('hidden');
+    addMessage('user', 'You', reply);
+    window.theodore.sendChat(reply);
+  };
+  el('confirm-yes-btn').addEventListener('click', () => answer('yes'));
+  el('confirm-no-btn').addEventListener('click', () => answer('no'));
   window.theodore.onChatExit((info) => {
     addMessage('system', null, `chat session ended${info.error ? ': ' + info.error : ''}`);
     chatProject = null;
     currentReplyBody = null;
+    el('confirm-bar').classList.add('hidden');
   });
 
   const send = () => {
     const input = el('chat-input');
     const line = input.value.trim();
     if (!line) return;
-    if (!state.project) { showError('Pick a project first.'); return; }
     ensureChatSession();
     addMessage('user', 'You', line);
     awaitingNewReplyBlock = true;

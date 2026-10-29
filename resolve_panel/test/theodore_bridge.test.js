@@ -336,3 +336,21 @@ test('startChat rejects a missing/blank project name before ever spawning', () =
   assert.throws(() => bridge.startChat(config, '', () => {}, () => {}, fakeSpawn), TypeError);
   assert.equal(spawned, false);
 });
+
+test('startAgentChat spawns `agent-chat` and omits --project when none is given', () => {
+  const config = { theodoreExecutable: '/bin/theodore', theodoreDataDir: '/data' };
+  let seen;
+  const child = makeFakeChatChild();
+  bridge.startAgentChat(config, '', () => {}, () => {}, (cmd, args) => { seen = args; return child; });
+  assert.deepEqual(seen, ['agent-chat']);
+});
+
+test('startAgentChat passes --project when one is chosen, and send() reaches stdin', () => {
+  const config = { theodoreExecutable: '/bin/theodore', theodoreDataDir: '/data' };
+  let seen;
+  const child = makeFakeChatChild();
+  const session = bridge.startAgentChat(config, 'docproj', () => {}, () => {}, (cmd, args) => { seen = args; return child; });
+  assert.deepEqual(seen, ['agent-chat', '--project', 'docproj']);
+  session.send('cut the ums');
+  assert.ok(child.stdin.written.join('').includes('cut the ums\n'));
+});

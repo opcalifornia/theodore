@@ -205,3 +205,17 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-weight: 600;
 }
 #chat-send-btn:hover { background: #4a3a26; }
+
+/* The agent's two confirmations (deleting, starting a render). */
+#confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #5a4a22;
+  border-radius: 6px;
+  background: #2a2417;
+  font-size: 12px;
+}
+#confirm-bar.hidden { display: none; }
+#confirm-bar span { flex: 1; color: var(--text-dim); }

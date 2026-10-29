@@ -124,7 +124,7 @@ let activeChat = null;
 
 ipcMain.on('theodore:chatStart', (event, project) => {
   if (activeChat) activeChat.stop();
-  activeChat = bridge.startChat(
+  activeChat = bridge.startAgentChat(
     undefined,
     project,
     (chunk) => { if (!event.sender.isDestroyed()) event.sender.send('theodore:chat-output', chunk); },

@@ -200,14 +200,29 @@ function spawnTheodore(config, args, onChunk, spawnImpl) {
 //
 // `spawnImpl` is injected only for tests, same pattern as spawnTheodore().
 function startChat(config, project, onChunk, onExit, spawnImpl) {
-  config = config || loadConfig();
   if (typeof project !== 'string' || !project) {
     throw new TypeError('startChat requires a non-empty project name');
   }
+  return spawnChat(config, ['chat', '--project', project], onChunk, onExit, spawnImpl);
+}
+
+// The Claude chat: `theodore agent-chat`, a conversation with the agent that
+// drives Resolve through the bridge. Unlike startChat() it needs no Theodore
+// project -- it works on whatever Resolve has open -- so `project` is
+// optional and only unlocks the transcript-based tools (silence, cuts,
+// captions) when given.
+function startAgentChat(config, project, onChunk, onExit, spawnImpl) {
+  const args = ['agent-chat'];
+  if (typeof project === 'string' && project) args.push('--project', project);
+  return spawnChat(config, args, onChunk, onExit, spawnImpl);
+}
+
+function spawnChat(config, args, onChunk, onExit, spawnImpl) {
+  config = config || loadConfig();
   const doSpawn = spawnImpl || spawn;
   const child = doSpawn(
     config.theodoreExecutable,
-    ['chat', '--project', project],
+    args,
     { env: childEnv(config) },
   );
   child.stdout.on('data', (data) => onChunk({ stream: 'stdout', text: data.toString() }));
@@ -234,4 +249,5 @@ module.exports = {
   runTheodore,
   spawnTheodore,
   startChat,
+  startAgentChat,
 };

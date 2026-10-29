@@ -46,6 +46,28 @@ class AgentResult:
     checkpoints: list = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    #: The full conversation so far. Pass it back as ``history`` to continue
+    #: it -- that's what makes a chat window a conversation, not a series of
+    #: unrelated one-offs.
+    messages: list = field(default_factory=list)
+
+
+def _drop_old_images(messages: list) -> list:
+    """Carrying every exported frame forward would bloat each later request
+    for no benefit -- the model already judged them. Keep the text."""
+    out = []
+    for m in messages:
+        if isinstance(m.get("content"), list):
+            blocks = []
+            for b in m["content"]:
+                if b.get("type") == "tool_result" and isinstance(b.get("content"), list):
+                    inner = [{"type": "text", "text": "[frame image omitted from history]"}
+                             if i.get("type") == "image" else i for i in b["content"]]
+                    b = {**b, "content": inner}
+                blocks.append(b)
+            m = {**m, "content": blocks}
+        out.append(m)
+    return out
 
 
 def _assistant_blocks(content) -> list:
@@ -75,16 +97,21 @@ def run_agent(
     model: str = DEFAULT_MODEL,
     max_steps: int = 40,
     on_event: Optional[Callable] = None,
+    history: Optional[list] = None,
 ) -> AgentResult:
     emit = on_event or (lambda *a, **k: None)
     ctx.instruction = instruction
+    # Each instruction is its own unit of safety and verification: it gets
+    # its own checkpoint, and last turn's edits don't excuse this turn's.
+    ctx.safety.protected_this_run = False
+    ctx.mutated, ctx.verified_since_mutation = False, True
     system = SYSTEM_PROMPT
     recalled = memory.prompt_block(ctx.project_name, ctx.memory_root) if ctx.project_name else ""
     if recalled:
         system += "\n\n" + recalled
 
     tools = [t.api_spec() for t in TOOLS]
-    messages = [{"role": "user", "content": instruction}]
+    messages = _drop_old_images(history or []) + [{"role": "user", "content": instruction}]
     result = AgentResult()
     nudges = 0
 
@@ -130,6 +157,7 @@ def run_agent(
     else:
         result.stopped_reason = "max_steps"
 
+    result.messages = messages
     result.mutated = ctx.mutated
     result.verified = ctx.verified_since_mutation
     result.checkpoints = [c.name for c in ctx.safety.checkpoints]

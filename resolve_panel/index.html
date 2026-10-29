@@ -58,8 +58,13 @@
     </section>
 
     <div id="chat-log" class="console chat-log"></div>
+    <div id="confirm-bar" class="hidden">
+      <span>Claude is asking before it goes ahead:</span>
+      <button id="confirm-yes-btn">Yes, do it</button>
+      <button id="confirm-no-btn">No</button>
+    </div>
     <div id="chat-row">
-      <input id="chat-input" type="text" placeholder='Talk to Theodore -- e.g. "move haylee.q03 after marcus.q04", or use a button above'>
+      <input id="chat-input" type="text" placeholder='Tell Claude what to do in Resolve -- e.g. "cut the ums and render a vertical version"'>
       <button id="chat-send-btn">Send</button>
     </div>
   </main>

@@ -84,6 +84,7 @@ class AgentContext:
     connect: Callable = connection.connect
     confirm: Callable = lambda description: False
     project_name: str = ""
+    theodore_project: str = ""   # the Theodore registry project, for the editorial engine
     instruction: str = ""
     safety: safety.SafetyState = field(default_factory=safety.SafetyState)
     memory_root: Optional[Path] = None
@@ -447,7 +448,7 @@ def _run_theodore(ctx, h, command, args=None):
     args = [str(a) for a in (args or [])]
     if command not in _THEODORE_READ | _THEODORE_EDIT:
         raise ToolError(f"command must be one of {sorted(_THEODORE_READ | _THEODORE_EDIT)}")
-    project = ctx.project_name or h.project.GetName()
+    project = ctx.theodore_project or ctx.project_name or h.project.GetName()
     cmd = [sys.executable, "-m", "theodore.cli", command, "--project", project, *args]
     runner = ctx.run_cli or (lambda c: subprocess.run(c, capture_output=True, text=True, timeout=900))
     done = runner(cmd)

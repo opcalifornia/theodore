@@ -2216,6 +2216,85 @@ def agent(instruction: tuple, yes: bool, model: Optional[str], max_steps: int):
     click.echo(f"{result.steps} steps, {result.input_tokens} in / {result.output_tokens} out tokens")
 
 
+@cli.command(name="agent-chat")
+@click.option("--project", default="", help="Theodore project (for transcript-based tools). Optional.")
+@click.option("--model", default=None)
+@click.option("--max-steps", type=int, default=40, show_default=True)
+def agent_chat(project: str, model: Optional[str], max_steps: int):
+    """A running conversation with the agent -- what the Resolve panel's chat
+    box talks to. One instruction per line on stdin; the agent keeps the whole
+    conversation, so "now do the same for the second timeline" works.
+
+    Confirmations (deleting, starting a render) print a `[confirm]` line and
+    wait for a `yes` or `no` line.
+    """
+    from theodore.agent import loop as agent_loop
+    from theodore.agent import tools as agent_tools
+
+    sys.stdout.reconfigure(line_buffering=True)
+    if not config.ANTHROPIC_API_KEY:
+        raise click.ClickException("ANTHROPIC_API_KEY isn't set -- run `theodore setup`.")
+
+    def read_line() -> Optional[str]:
+        line = sys.stdin.readline()
+        return None if line == "" else line.strip()
+
+    def confirm(description: str) -> bool:
+        click.echo(f"[confirm] {description} -- reply yes or no")
+        answer = read_line()
+        return (answer or "").lower() in ("y", "yes")
+
+    def connect_ctx():
+        h = _connect_or_die()
+        return agent_tools.AgentContext(
+            connect=resolve_connection.connect, confirm=confirm,
+            project_name=h.project.GetName(), theodore_project=project,
+        ), h
+
+    ctx, handles = connect_ctx()
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    history: list = []
+
+    def show(kind, *a):
+        if kind == "say":
+            click.echo(a[0])
+        elif kind == "tool":
+            click.echo(f"  > {a[0]} {json.dumps(a[1])[:140]}")
+        elif kind == "result":
+            if not a[1].get("ok", True):
+                click.echo(f"    failed: {a[1].get('error')}")
+            elif a[2]:
+                click.echo("    (looked at the frame)")
+        elif kind == "nudge":
+            click.echo(f"  ! {a[0]}")
+
+    click.echo(f"Connected to '{ctx.project_name}' via {handles.via}. What would you like to do?")
+    while True:
+        line = read_line()
+        if line is None or line.lower() in ("exit", "quit"):
+            return
+        if not line:
+            continue
+        try:
+            result = agent_loop.run_agent(
+                line, ctx, client, model=model or agent_loop.DEFAULT_MODEL,
+                max_steps=max_steps, on_event=show, history=history,
+            )
+        except resolve_connection.ResolveConnectionError as exc:
+            click.echo(f"Lost Resolve: {exc}")
+            continue
+        except anthropic.APIError as exc:
+            click.echo(f"Claude API error: {exc}")
+            continue
+        history = result.messages
+        if result.stopped_reason == "max_steps":
+            click.echo(f"(stopped after {max_steps} steps without finishing)")
+        elif result.mutated and not result.verified:
+            click.echo("(edited, but never visually verified)")
+        if result.checkpoints and ctx.safety.protected_this_run:
+            click.echo(f"(checkpoint: {ctx.safety.checkpoints[-1].name} -- say \"undo that\" to restore)")
+
+
 @cli.command(name="agent-tools")
 def agent_tools_cmd():
     """List every tool the agent can use, grouped by how risky it is."""
