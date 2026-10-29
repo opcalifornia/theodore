@@ -575,10 +575,14 @@ def main():
         "with Resolve." % (state.version_string or "Resolve", edition, port, handshake),
     )
 
-    if config.get("blockMainThread"):
-        # Fallback for any Resolve build that tears the interpreter down
-        # when a script returns. Resolve's UI stays responsive, but this
-        # menu item won't report as finished until Resolve quits.
+    # Default ON: measured on a real Resolve 21 Studio, the listener thread
+    # is torn down the moment this script returns (connection refused right
+    # after the "Bridge running" dialog). Holding the script open keeps the
+    # interpreter, and so the listener, alive. THEODORE_BRIDGE_NO_BLOCK
+    # exists for tests; blockMainThread=false opts out in config.
+    if config.get("blockMainThread", True) and not os.environ.get("THEODORE_BRIDGE_NO_BLOCK"):
+        # Resolve's UI stays responsive, but this menu item won't report as
+        # finished until Resolve quits.
         try:
             server.serve_forever()
         except KeyboardInterrupt:

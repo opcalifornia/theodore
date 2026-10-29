@@ -518,6 +518,7 @@ def test_script_runs_when_resolve_injects_the_global_without_main_name(tmp_path,
     import runpy
 
     monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h"))
+    monkeypatch.setenv("THEODORE_BRIDGE_NO_BLOCK", "1")
     resolve_obj, _p, _t = _build_fake_resolve()
     runpy.run_path(str(BRIDGE_SCRIPT), run_name="not_main",
                         init_globals={"resolve": resolve_obj,
@@ -536,7 +537,32 @@ def test_importing_the_script_without_resolve_has_no_side_effects(tmp_path, monk
 def test_script_runs_when_exec_d_without___file__(tmp_path, monkeypatch):
     """The Console fallback: exec(open(path).read()) has no __file__."""
     monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h3"))
+    monkeypatch.setenv("THEODORE_BRIDGE_NO_BLOCK", "1")
     resolve_obj, _p, _t = _build_fake_resolve()
     namespace = {"resolve": resolve_obj, "__name__": "console"}
     exec(compile(BRIDGE_SCRIPT.read_text(), "bridge", "exec"), namespace)
     assert (tmp_path / "h3" / "bridge.json").exists()
+
+
+def test_script_blocks_by_default_so_resolve_cannot_kill_the_listener(tmp_path, monkeypatch):
+    """Measured on real Resolve 21: the listener dies when the script
+    returns. main() must therefore hold open by default."""
+    monkeypatch.setenv("THEODORE_BRIDGE_HOME", str(tmp_path / "h4"))
+    monkeypatch.delenv("THEODORE_BRIDGE_NO_BLOCK", raising=False)
+    resolve_obj, _p, _t = _build_fake_resolve()
+    served = []
+
+    class _Srv:
+        def serve_forever(self):
+            served.append(True)
+
+    real_start = bridge_module.start_bridge
+    def fake_start(r, c=None):
+        server, port, state, hs = real_start(r, c)
+        server.shutdown(); server.server_close()
+        return _Srv(), port, state, hs
+    monkeypatch.setattr(bridge_module, "start_bridge", fake_start)
+    monkeypatch.setattr(bridge_module, "_show_result", lambda *a: None)
+    monkeypatch.setattr(bridge_module, "resolve", resolve_obj, raising=False)
+    bridge_module.main()
+    assert served == [True]
