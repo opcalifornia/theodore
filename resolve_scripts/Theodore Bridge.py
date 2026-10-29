@@ -527,7 +527,9 @@ def start_bridge(resolve_obj, config=None):
 
 def _show_result(title, message):
     print("[Theodore] %s\n%s" % (title, message))
-    if sys.platform == "darwin":
+    # THEODORE_BRIDGE_NO_DIALOG exists for tests, which run this script
+    # against a fake Resolve and must not pop real dialogs on the desktop.
+    if sys.platform == "darwin" and not os.environ.get("THEODORE_BRIDGE_NO_DIALOG"):
         escaped = message.replace("\\", "\\\\").replace('"', '\\"')
         script = (
             'display dialog "%s" with title "Theodore -- %s" '

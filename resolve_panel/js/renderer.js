@@ -45,15 +45,25 @@ async function safely(fn) {
 async function refreshProjects() {
   const projects = await window.theodore.listProjects();
   const select = el('project-select');
+  const previous = state.project;
   select.innerHTML = '';
+  // These are Theodore's ingested-footage projects, not Resolve projects.
+  // Defaulting to the first one handed the chat some other project's
+  // transcripts while it edited whatever Resolve has open, so the default is
+  // none: the chat follows Resolve, and a project is only an opt-in for the
+  // transcript-based tools.
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '(none)';
+  select.appendChild(none);
   for (const p of projects) {
     const opt = document.createElement('option');
     opt.value = p;
     opt.textContent = p;
     select.appendChild(opt);
   }
-  state.project = projects[0] || null;
-  if (state.project) select.value = state.project;
+  state.project = projects.includes(previous) ? previous : null;
+  select.value = state.project || '';
   await refreshSubjects();
 }
 
@@ -561,7 +571,7 @@ async function init() {
   initChat();
 
   el('project-select').addEventListener('change', (e) => {
-    state.project = e.target.value;
+    state.project = e.target.value || null;
     safely(refreshSubjects);
   });
   el('subject-select').addEventListener('change', (e) => {

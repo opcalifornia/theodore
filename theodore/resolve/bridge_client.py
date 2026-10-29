@@ -46,6 +46,12 @@ logger = logging.getLogger(__name__)
 #: this one only guards against a socket that never answers at all.
 DEFAULT_SOCKET_TIMEOUT = 180.0
 
+#: The bridge answers ``health`` from state captured at startup, without
+#: touching Resolve, so a live bridge replies at once. Waiting the full
+#: DEFAULT_SOCKET_TIMEOUT (twice, with the retry) for a frozen one left the
+#: panel chat sitting on "..." for six minutes with no explanation.
+HEALTH_TIMEOUT = 5.0
+
 
 class BridgeUnavailable(RuntimeError):
     """No live bridge to talk to (never started, or Resolve has since quit)."""
@@ -299,13 +305,23 @@ def connect_bridge(socket_timeout: float = DEFAULT_SOCKET_TIMEOUT) -> BridgeClie
             "That connects Theodore to Resolve for the whole session -- you only "
             "do it once each time you open Resolve."
         )
-    client = BridgeClient(handshake, socket_timeout=socket_timeout)
+    client = BridgeClient(handshake, socket_timeout=min(socket_timeout, HEALTH_TIMEOUT))
     try:
         client.health()  # a stale handshake file looks identical until we ask
     except BridgeCallError as exc:
         client.close()
         raise BridgeUnavailable(f"Bridge is running but unhealthy: {exc}") from exc
-    except BridgeUnavailable:
+    except BridgeUnavailable as exc:
         client.close()
+        if isinstance(exc.__cause__, socket.timeout):
+            raise BridgeUnavailable(
+                "Resolve's Theodore bridge is running but not answering -- it is "
+                "frozen, usually after Resolve reloaded the project.\n\n"
+                "Restart it: in Resolve, Workspace -> Scripts -> Theodore -> "
+                "Theodore Bridge."
+            ) from exc
         raise
+    # Healthy: reconnect with the generous timeout real calls need.
+    client._drop_connection()
+    client._timeout = socket_timeout
     return client
