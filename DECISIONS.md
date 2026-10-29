@@ -188,3 +188,55 @@ The spec asked for a new branch and a PR, but this session's standing
 instruction names that branch explicitly and says never to push elsewhere
 without permission. The explicit instruction wins; the PR is a one-line ask
 away.
+
+
+---
+
+## 2026-10-29 — The agent
+
+### Hold the bridge script open (measured, not assumed)
+
+On a real Resolve 21 Studio the listener answered, then refused connections
+once the Scripts-menu script returned -- Resolve tears down the
+interpreter's threads when a script ends. `main()` now serves in the
+foreground by default (`blockMainThread: false` opts out). The first design
+assumed the opposite and shipped it as an opt-in; the smoke test existed to
+catch exactly this. Also fixed: the script keyed on `__name__ == "__main__"`,
+which Resolve doesn't promise, so it could load and do nothing.
+
+### Which two actions confirm
+
+The brief said "only those two actions need my confirmation" without naming
+them. Chosen: **deleting anything** (clips, timelines, markers, and any
+escape-hatch method starting Delete/Remove) and **starting a render** (time,
+disk, can overwrite files). Everything else is checkpointed instead of asked
+about, because a checkpoint makes it undoable and a prompt makes it slow.
+
+### Checkpoint = duplicate timeline; undo = switch to it
+
+No history to replay, nothing to get wrong. Undo never deletes the edited
+timeline. The agent can't delete a checkpoint. If a checkpoint can't be made,
+the edit is refused -- never edited unprotected. One checkpoint per
+instruction, not per edit.
+
+### Verification is enforced in code
+
+Telling a model to "verify" is a request. So: every edit's result carries a
+`state_after` computed by code, and finishing after an edit without a
+`export_frame` since is bounced back twice, then the run ends *flagged
+unverified* instead of looping or lying.
+
+### Escape hatch is split by method name
+
+`call_resolve_api` treats Get/Is/Has/List as reads (no checkpoint) and
+anything else as an edit (checkpoint + verify). A static "write" kind made
+every harmless read take a checkpoint -- caught by a test.
+
+### Scope, honestly
+
+Built: the tool layer (28 tools), operator loop, checkpoint/undo, memory,
+`theodore agent`. Not built from the brief: opcuts/shorts hand-off (that
+folder isn't in this repo), voice and dashboard front doors, an MCP server for
+Claude Desktop, scene-cut detection / Fairlight / Fusion / color-grade tools.
+`call_resolve_api` reaches those methods meanwhile. The panel's chat box still
+talks to the older `theodore chat`, not the agent.

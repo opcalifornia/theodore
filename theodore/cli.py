@@ -2158,6 +2158,87 @@ def status(project: str, subject: Optional[str]):
         click.echo()
 
 
+@cli.command(name="agent")
+@click.argument("instruction", nargs=-1, required=True)
+@click.option("--yes", "-y", is_flag=True,
+              help="Pre-approve the two confirmations (deleting, starting a render).")
+@click.option("--model", default=None, help="Claude model (default: THEODORE_AGENT_MODEL or Sonnet 5.5).")
+@click.option("--max-steps", type=int, default=40, show_default=True)
+def agent(instruction: tuple, yes: bool, model: Optional[str], max_steps: int):
+    """Tell Claude what to do in your open Resolve project, in plain English.
+
+    It inspects the timeline, plans, edits, then looks at the result (state
+    read-back plus a viewer frame) and fixes what's off. A checkpoint copy of
+    your timeline is made before its first edit, so "theodore agent undo that"
+    puts it back. Only deleting and starting a render ask first.
+    """
+    from theodore.agent import loop as agent_loop
+    from theodore.agent import tools as agent_tools
+
+    if not config.ANTHROPIC_API_KEY:
+        raise click.ClickException("ANTHROPIC_API_KEY isn't set -- run `theodore setup`.")
+
+    handles = _connect_or_die()
+    ctx = agent_tools.AgentContext(
+        connect=resolve_connection.connect,
+        confirm=(lambda _d: True) if yes else (lambda d: click.confirm(f"\nConfirm: {d}", default=False)),
+        project_name=handles.project.GetName(),
+    )
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    def show(kind, *a):
+        if kind == "say":
+            click.echo(f"\n{a[0]}")
+        elif kind == "tool":
+            click.echo(click.style(f"  > {a[0]} {json.dumps(a[1])[:160]}", dim=True))
+        elif kind == "result":
+            ok = a[1].get("ok", True)
+            note = "" if ok else f"  FAILED: {a[1].get('error')}"
+            if a[2]:
+                note += "  [looked at the frame]"
+            if note:
+                click.echo(click.style(f"    {note.strip()}", dim=True, fg=None if ok else "red"))
+        elif kind == "nudge":
+            click.echo(click.style(f"  ! {a[0]}", fg="yellow"))
+
+    click.echo(f"Project: {ctx.project_name}  (via {handles.via})")
+    result = agent_loop.run_agent(
+        " ".join(instruction), ctx, client,
+        model=model or agent_loop.DEFAULT_MODEL, max_steps=max_steps, on_event=show,
+    )
+    click.echo()
+    if result.stopped_reason == "max_steps":
+        click.echo(click.style(f"Stopped after {max_steps} steps without finishing.", fg="yellow"))
+    elif result.mutated and not result.verified:
+        click.echo(click.style("Note: edited, but the result was never visually verified.", fg="yellow"))
+    if result.checkpoints:
+        click.echo(f"Checkpoint: {result.checkpoints[0]}  (say \"undo that\" to restore it)")
+    click.echo(f"{result.steps} steps, {result.input_tokens} in / {result.output_tokens} out tokens")
+
+
+@cli.command(name="agent-tools")
+def agent_tools_cmd():
+    """List every tool the agent can use, grouped by how risky it is."""
+    from theodore.agent import tools as agent_tools
+
+    order = [agent_tools.READ, agent_tools.NAVIGATE, agent_tools.SAFE_WRITE,
+             agent_tools.WRITE, agent_tools.DESTRUCTIVE, agent_tools.RENDER]
+    notes = {
+        agent_tools.READ: "looks only",
+        agent_tools.NAVIGATE: "moves playhead / current timeline",
+        agent_tools.SAFE_WRITE: "adds something new beside your edit",
+        agent_tools.WRITE: "changes the timeline -- auto-checkpointed, state read back",
+        agent_tools.DESTRUCTIVE: "deletes -- checkpointed AND asks you first",
+        agent_tools.RENDER: "renders -- asks you first",
+    }
+    for kind in order:
+        group = [t for t in agent_tools.TOOLS if t.kind == kind]
+        click.echo(f"\n{kind.upper()}  ({notes[kind]})")
+        for t in group:
+            click.echo(f"  {t.name:<24} {t.description.split('.')[0]}")
+    click.echo(f"\n{len(agent_tools.TOOLS)} tools.")
+
+
 #: The bridge script, as shipped in this repo. Named for the menu entry it
 #: becomes: Resolve uses the filename as the label under Workspace -> Scripts.
 BRIDGE_SCRIPT_NAME = "Theodore Bridge.py"

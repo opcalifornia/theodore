@@ -552,6 +552,39 @@ script returning, that the object graph proxies correctly, that
 serialized, call latency, and that a bad token is rejected. The write check
 only ever touches a duplicate timeline, never your edit.
 
+## Talking to Claude in Resolve (the agent)
+
+```bash
+theodore agent "add a marker at every cut, then render a vertical version"
+theodore agent undo that
+theodore agent-tools                 # every tool, grouped by risk
+```
+
+Needs the bridge running (see above) and `ANTHROPIC_API_KEY`. Claude inspects
+your project, states a short plan, edits through typed tools, then **checks
+its own work**: every edit returns a state read-back computed by code (items
+per track, duration, markers), and it must look at the viewer
+(`export_frame`) before it may finish -- if it tries to stop after editing
+without looking, it's sent back, and if it still doesn't, the run is flagged
+unverified rather than reported as done.
+
+**Safety.** Before its first edit in a run, Theodore saves the project and
+duplicates your timeline as `Theodore checkpoint HHMMSS - <name>`.
+"Undo that" switches back to it; nothing is deleted. Only two things ever
+ask you first: **deleting**, and **starting a render**. Source media and
+projects can't be deleted by any tool, and the escape hatch
+(`call_resolve_api`) refuses those methods. `--yes` pre-approves the two
+confirmations.
+
+**Memory.** Preferences you state ("white lower-third captions") and a log of
+what was done are kept per Resolve project in `data/agent_memory/` and fed
+back in next time.
+
+It reaches Theodore's tested editorial engine (`remove-silence`,
+`cut-timeline`, captions, dupes, gaps) through `theodore_analyze` /
+`theodore_edit`, so transcript-based work uses the same code as the CLI.
+The model defaults to Sonnet 5.5; set `THEODORE_AGENT_MODEL` to change it.
+
 ## DaVinci Resolve panel
 
 `resolve_panel/` is a real DaVinci Resolve Studio Workflow Integration
