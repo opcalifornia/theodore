@@ -62,10 +62,18 @@ def record_action(project_name: str, instruction: str, summary: str, root: Optio
     _save(project_name, data, root)
 
 
+#: The editor's house style: preferences that apply to every project.
+STUDIO = "__studio__"
+
+
 def prompt_block(project_name: str, root: Optional[Path] = None) -> str:
     """Text for the system prompt; empty when there is nothing to recall."""
-    data = load(project_name, root)
     lines = []
+    studio = load(STUDIO, root)["preferences"]
+    if studio:
+        lines.append("The editor's house style (every project; a project preference below wins):")
+        lines += [f"- {k}: {v}" for k, v in sorted(studio.items())]
+    data = load(project_name, root) if project_name else {"preferences": {}, "log": []}
     if data["preferences"]:
         lines.append("Editor preferences for this project (follow them unless told otherwise):")
         lines += [f"- {k}: {v}" for k, v in sorted(data["preferences"].items())]

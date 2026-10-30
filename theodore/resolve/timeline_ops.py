@@ -398,10 +398,27 @@ def make_aspect_version(h, aspect: str = "9:16", *, name: Optional[str] = None,
     if any(k.startswith("timelineResolution") for k in failed):
         raise TimelineOpError(f"Resolve would not set '{tl.GetName()}' to {width}x{height} "
                               f"({', '.join(failed)}).")
-    reframed, not_reframed, overlays = 0, [], []
+    from theodore.resolve import graphics
+    reframed, not_reframed, overlays, rebuilt = 0, [], [], []
+    project_name = h.project.GetName()
     for kind, idx in _tracks(tl, (VIDEO,)):
         for it in _items(tl, kind, idx):
-            if it.GetMediaPoolItem() is None:
+            mpi = it.GetMediaPoolItem()
+            if mpi is not None and graphics.is_compound(mpi):
+                # A Theodore graphic: rebuild it for the new frame instead of
+                # cropping a 16:9 layout. Anything else compound is left as is.
+                spec = graphics.recall(project_name, mpi.GetName())
+                if spec:
+                    start, dur = int(it.GetStart()), int(it.GetDuration())
+                    tl.DeleteClips([it], False)
+                    clip, frames = graphics.make_graphic(h, spec["kind"], spec["text"], spec.get("subtext", ""),
+                                                         spec.get("accent", "#E8B04A"), frames=dur)
+                    graphics.place(h, tl, clip, start, frames, frames)
+                    rebuilt.append(spec["text"])
+                else:
+                    overlays.append(f"V{idx} '{it.GetName()}' at {it.GetStart()}")
+                continue
+            if mpi is None:
                 overlays.append(f"V{idx} '{it.GetName()}' at {it.GetStart()}")
                 continue
             if not smart_reframe:
@@ -416,9 +433,101 @@ def make_aspect_version(h, aspect: str = "9:16", *, name: Optional[str] = None,
                 not_reframed.append(f"V{idx} '{it.GetName()}' at {it.GetStart()}")
     out = {"timeline": tl.GetName(), "from": original_name, "resolution": f"{width}x{height}",
            "clips_smart_reframed": reframed, "not_reframed": not_reframed,
+           "graphics_rebuilt_for_new_shape": rebuilt,
            "settings_not_applied": failed}
     if overlays:
         out["check_these"] = overlays
         out["note"] = ("Titles/graphics/generators keep their 16:9 layout -- reposition or resize "
                        "them for the new frame.")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Assembling: build a new timeline from selects, in any order
+# ---------------------------------------------------------------------------
+
+def _unique_timeline_name(project, base: str) -> str:
+    names = {project.GetTimelineByIndex(i).GetName() for i in range(1, int(project.GetTimelineCount() or 0) + 1)}
+    name, n = base, 2
+    while name in names:
+        name, n = f"{base} {n}", n + 1
+    return name
+
+
+def assemble_clip_selects(h, selects: list[dict], name: str, *, markers: bool = True) -> dict:
+    """selects: [{"clip": MediaPoolItem, "start": src_frame, "end": src_frame (exclusive),
+    "label": optional marker name, "color": optional}] -> a new timeline, in order, picture
+    and sound together (linked), back to back."""
+    project = h.project
+    pool = project.GetMediaPool()
+    tl = pool.CreateEmptyTimeline(_unique_timeline_name(project, name))
+    if not tl:
+        raise TimelineOpError(f"Could not create timeline {name!r}.")
+    project.SetCurrentTimeline(tl)
+    placed, failed, cursor = 0, [], int(tl.GetStartFrame())
+    for sel in selects:
+        info = {"mediaPoolItem": sel["clip"], "startFrame": int(sel["start"]), "endFrame": int(sel["end"])}
+        got = _placed_item(pool.AppendToTimeline([info]))
+        if got is None:
+            failed.append(f"{sel['clip'].GetName()} {sel['start']}-{sel['end']}")
+            continue
+        if markers and sel.get("label"):
+            tl.AddMarker(int(got.GetStart()) - int(tl.GetStartFrame()), sel.get("color", "Blue"),
+                         sel["label"][:60], sel.get("note", "")[:500], 1, "")
+        cursor = int(got.GetEnd())
+        placed += 1
+    if not placed:
+        raise TimelineOpError("Resolve placed none of the selects. " + "; ".join(failed[:5]))
+    return {"timeline": tl.GetName(), "selects_placed": placed, "failed": failed,
+            "duration_frames": cursor - int(tl.GetStartFrame())}
+
+
+def assemble_timeline_ranges(h, ranges: list[tuple[int, int]], name: str,
+                             labels: Optional[list] = None) -> dict:
+    """Build a new timeline from [start, end) ranges of the OPEN timeline's frames,
+    in the order given (re-ordering allowed), every track kept in sync: each
+    clip overlapping a range contributes exactly its overlapping part, at the
+    same offset, on the same track. The original is untouched."""
+    original = h.timeline
+    src_start = int(original.GetStartFrame())
+    snaps = []
+    for kind, idx in _tracks(original, (VIDEO, AUDIO)):
+        for it in _items(original, kind, idx):
+            s = _snapshot(it, kind, idx)
+            if s.mpi is not None:
+                snaps.append(s)
+    tl = duplicate_for_edit(h, _unique_timeline_name(h.project, name), "assembled")
+    existing = [it for kind, idx in _tracks(tl, (VIDEO, AUDIO, SUBTITLE)) for it in _items(tl, kind, idx)]
+    if existing and not tl.DeleteClips(existing, False):
+        raise TimelineOpError("Could not clear the new timeline before assembling.")
+    pool = h.project.GetMediaPool()
+    cursor = int(tl.GetStartFrame())
+    placed, skipped = 0, 0
+    for n, (a, b) in enumerate(ranges):
+        a, b = int(a), int(b)
+        if b <= a:
+            continue
+        for s in snaps:
+            lo, hi = max(a, s.start), min(b, s.end)
+            if hi <= lo:
+                continue
+            info = {"mediaPoolItem": s.mpi, "startFrame": s.src_in + (lo - s.start),
+                    "endFrame": s.src_in + (hi - s.start), "recordFrame": cursor + (lo - a),
+                    "trackIndex": s.index, "mediaType": 1 if s.kind == VIDEO else 2}
+            got = _placed_item(pool.AppendToTimeline([info]))
+            if got is None:
+                skipped += 1
+                continue
+            if s.kind == VIDEO:
+                try:
+                    s.item.CopyGrades([got])
+                except Exception:  # noqa: BLE001
+                    pass
+            _restore(got, s)
+            placed += 1
+        if labels and n < len(labels) and labels[n]:
+            tl.AddMarker(cursor - int(tl.GetStartFrame()), "Blue", str(labels[n])[:60], "", 1, "")
+        cursor += b - a
+    return {"timeline": tl.GetName(), "from": original.GetName(), "pieces_placed": placed,
+            "pieces_refused": skipped, "duration_frames": cursor - int(tl.GetStartFrame()),
+            "source_start_frame": src_start}

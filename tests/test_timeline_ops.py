@@ -173,6 +173,9 @@ class Project:
     def GetMediaPool(self):
         return self.pool
 
+    def GetName(self):
+        return "Fake Project"
+
     def SetCurrentTimeline(self, tl):
         self.current = tl
         return True

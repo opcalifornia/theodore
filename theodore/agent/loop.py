@@ -106,7 +106,7 @@ def run_agent(
     ctx.safety.protected_this_run = False
     ctx.mutated, ctx.verified_since_mutation = False, True
     system = SYSTEM_PROMPT
-    recalled = memory.prompt_block(ctx.project_name, ctx.memory_root) if ctx.project_name else ""
+    recalled = memory.prompt_block(ctx.project_name or "", ctx.memory_root)
     if recalled:
         system += "\n\n" + recalled
 

@@ -186,3 +186,84 @@ def try_transcribe_file(path: Path, word_level: bool = True) -> tuple[Optional[d
         return transcribe_file(h, path, word_level), None
     except Exception as exc:  # noqa: BLE001
         return None, str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Raw clips (interview footage in the media pool), cached
+# ---------------------------------------------------------------------------
+
+def _cache_path(clip) -> Optional[Path]:
+    import hashlib
+    from theodore import config
+    path = clip.GetClipProperty("File Path") or ""
+    try:
+        st = Path(path).stat()
+        key = f"{path}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        key = f"{path}|{clip.GetName()}|{clip.GetClipProperty('Frames')}"
+    digest = hashlib.sha1(key.encode()).hexdigest()[:16]
+    return Path(config.DATA_ROOT) / "transcripts" / f"{digest}.json"
+
+
+def transcribe_clip(h, clip, word_level: bool = True, use_cache: bool = True) -> dict:
+    """Transcribe one media pool clip. Frames in the result are SOURCE frames
+    of the clip (0 = its first frame), exactly what AppendToTimeline's
+    startFrame/endFrame take, so selects can be cut straight from them."""
+    import json
+    cache = _cache_path(clip)
+    if use_cache and cache and cache.exists():
+        return json.loads(cache.read_text(encoding="utf-8"))
+    project = h.project
+    pool = project.GetMediaPool()
+    original = project.GetCurrentTimeline()
+    temp = pool.CreateTimelineFromClips(f"Theodore transcribe {int(time.time() * 1000)}", [clip])
+    if not temp:
+        raise TranscribeError(f"Could not make a temporary timeline for '{clip.GetName()}'.")
+    try:
+        project.SetCurrentTimeline(temp)
+        result = _run_on(h, temp, word_level)
+    finally:
+        if original:
+            project.SetCurrentTimeline(original)
+        _delete_timeline(project, temp)
+    result["clip"] = clip.GetName()
+    result["file"] = clip.GetClipProperty("File Path")
+    if cache:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Captions on the timeline itself
+# ---------------------------------------------------------------------------
+
+CAPTION_STYLES = {
+    # chars per line, double line?
+    "social": (22, False),       # short punchy lines for 9:16 / muted autoplay
+    "broadcast": (42, True),     # standard two-line subtitles
+    "netflix": (42, True),
+}
+
+
+def add_captions(h, style: str = "social") -> dict:
+    """Create a subtitle track from the open timeline's audio with Resolve's
+    own captioning. Additive: a new subtitle track; nothing else changes."""
+    if style not in CAPTION_STYLES:
+        raise TranscribeError(f"style must be one of {sorted(CAPTION_STYLES)}")
+    tl, r = h.timeline, h.resolve
+    chars, double = CAPTION_STYLES[style]
+    settings = {_const(r, "SUBTITLE_CHARS_PER_LINE"): chars,
+                _const(r, "SUBTITLE_LINE_BREAK"): (getattr(r, "AUTO_CAPTION_LINE_DOUBLE", 2) if double
+                                                   else _const(r, "AUTO_CAPTION_LINE_SINGLE"))}
+    if style == "netflix" and hasattr(r, "SUBTITLE_CAPTION_PRESET"):
+        settings[r.SUBTITLE_CAPTION_PRESET] = r.AUTO_CAPTION_NETFLIX
+    before = int(tl.GetTrackCount("subtitle") or 0)
+    if not tl.CreateSubtitlesFromAudio(settings):
+        raise TranscribeError("Resolve's Create Subtitles from Audio failed (Studio only; needs audio).")
+    after = int(tl.GetTrackCount("subtitle") or 0)
+    items = list(tl.GetItemListInTrack("subtitle", after) or []) if after else []
+    return {"timeline": tl.GetName(), "subtitle_track": f"ST{after}", "captions": len(items),
+            "style": style, "first": [it.GetName() for it in items[:3]],
+            "note": ("Burn in or export as SRT from the Deliver page. Caption look (font, box, position) is "
+                     "set on the subtitle track's Inspector." + (" New track added." if after > before else ""))}

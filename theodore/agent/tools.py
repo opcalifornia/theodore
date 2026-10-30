@@ -241,9 +241,12 @@ def _undo(ctx, h):
             f"'{cp.original_name}' still exists, untouched."}
 
 
-def _remember(ctx, h, key, value):
+def _remember(ctx, h, key, value, scope="project"):
+    if scope == "studio" or h is None or h.project is None:
+        memory.set_preference(memory.STUDIO, key, value, ctx.memory_root)
+        return {"remembered": {key: value}, "scope": "studio (every project)"}
     memory.set_preference(ctx.project_name or h.project.GetName(), key, value, ctx.memory_root)
-    return {"remembered": {key: value}}
+    return {"remembered": {key: value}, "scope": "this project"}
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +603,71 @@ def _resolve_api_docs(ctx, h, query=None, section=None):
 
 
 # ---------------------------------------------------------------------------
+# handlers: the editorial engine
+# ---------------------------------------------------------------------------
+
+def _build_story_cut(ctx, h, target_seconds=60, brief="", clips=None, bin=None, use_timeline=False,
+                     name=None):
+    from theodore.edit import interview
+    try:
+        sources = None if use_timeline else interview.find_clips(h, clips, bin)
+        return interview.build_story(h, clips=sources, use_timeline=bool(use_timeline), brief=brief,
+                                     target_seconds=float(target_seconds), name=name)
+    except interview.InterviewError as exc:
+        raise ToolError(str(exc))
+
+
+def _clean_up_speech(ctx, h, max_pause_seconds=0.6, keep_pause_seconds=0.25, fillers=True, repeats=True,
+                     preview=False, name=None):
+    from theodore.edit import cleanup
+    return cleanup.clean_up(h, fillers=fillers, repeats=repeats, max_pause=float(max_pause_seconds),
+                            keep_pause=float(keep_pause_seconds), new_name=name, dry_run=bool(preview))
+
+
+def _place_broll(ctx, h, bin=None, clips=None, coverage=0.4, brief="", in_place=False, name=None):
+    from theodore.edit import broll, interview
+    try:
+        library = interview.find_clips(h, clips, bin)
+    except interview.InterviewError as exc:
+        raise ToolError(str(exc))
+    return broll.place_broll(h, library, coverage=float(coverage), brief=brief,
+                             on_duplicate=not in_place, name=name)
+
+
+def _add_graphic(ctx, h, text, at_seconds, subtext="", style="boxed", seconds=4.0, accent="#E8B04A"):
+    from theodore.resolve import graphics
+    tl = h.timeline
+    fps = float(_fps(h) or 24)
+    try:
+        clip, frames = graphics.make_graphic(h, style, text, subtext, accent, frames=int(float(seconds) * fps))
+        placed = graphics.place(h, ctx.handles().timeline, clip, tl.GetStartFrame() + int(float(at_seconds) * fps),
+                                frames, frames)
+    except graphics.GraphicsError as exc:
+        raise ToolError(str(exc))
+    return {"graphic": clip.GetName(), "style": style, "at_seconds": at_seconds,
+            "seconds": round(placed["frames"] / fps, 2), "track": placed["track"],
+            "note": "Built as a Fusion title, kept in the 'Theodore Graphics' bin; nothing under it moved."}
+
+
+def _add_transitions(ctx, h, kind="dissolve", seconds=0.5, at_cuts=None, fade_in=False, fade_out=False,
+                     name=None):
+    from theodore.resolve import transitions
+    try:
+        return transitions.add_transitions(h, at_cuts=at_cuts, kind=kind, seconds=float(seconds),
+                                           head=bool(fade_in), tail=bool(fade_out), name=name)
+    except transitions.TransitionError as exc:
+        raise ToolError(str(exc))
+
+
+def _add_captions(ctx, h, style="social"):
+    from theodore.resolve import transcribe
+    try:
+        return transcribe.add_captions(h, style)
+    except transcribe.TranscribeError as exc:
+        raise ToolError(str(exc))
+
+
+# ---------------------------------------------------------------------------
 # handlers: studying reference videos (files only, no Resolve)
 # ---------------------------------------------------------------------------
 
@@ -672,9 +740,11 @@ TOOLS = [
          _set_current_timeline, NAVIGATE, needs_timeline=False),
     Tool("undo_last_checkpoint", "Undo: switch back to the checkpoint taken before this session's "
          "first edit. Non-destructive -- the edited timeline stays.", _obj({}), _undo, NAVIGATE),
-    Tool("remember_preference", "Store an editor preference for this project (caption style, "
-         "render preset, naming) so it's followed in future sessions.",
-         _obj({"key": _S, "value": _S}, ["key", "value"]), _remember, READ, needs_timeline=False),
+    Tool("remember_preference", "Store how the editor likes things so it's followed from now on. "
+         "scope='studio' = their house style for EVERY project (caption look, lower-third colour, pacing, "
+         "naming, delivery habits); scope='project' = just this project (client name, brand colours).",
+         _obj({"key": _S, "value": _S, "scope": {"type": "string", "enum": ["project", "studio"]}},
+              ["key", "value"]), _remember, READ, needs_timeline=False),
     # media pool
     Tool("list_media_pool", "Every bin and the clip names in it.", _obj({}), _list_media_pool, READ, needs_timeline=False),
     Tool("import_media", "Import files from disk into the media pool.",
@@ -755,6 +825,45 @@ TOOLS = [
                "tracks": {"type": "array", "items": _S}, "from_seconds": {"type": "number"},
                "to_seconds": {"type": "number"}, "in_place": {"type": "boolean"}, "new_name": _S}),
          _move_clips, WRITE),
+    # the editorial engine
+    Tool("build_story_cut", "Cut interview footage into a finished story: Resolve transcribes every "
+         "source, Claude (as story editor) picks hook -> arc -> button (-> CTA) to target_seconds, and a "
+         "NEW timeline is assembled in story order with section markers. Sources: a bin, clip names, or "
+         "use_timeline=true for the open timeline (multi-track, kept in sync). Give a brief: purpose, "
+         "audience, tone, must-say lines. Run it again with other targets for :15/:30/:60 versions.",
+         _obj({"target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
+               "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"}, "name": _S}),
+         _build_story_cut, SAFE_WRITE, needs_timeline=False),
+    Tool("clean_up_speech", "Take ums/uhs, stumbles ('I, I') and dead air out of the open timeline "
+         "(long pauses shortened to keep_pause_seconds, not removed) on a NEW duplicate, every track "
+         "cut together. preview=true lists the cuts without changing anything.",
+         _obj({"max_pause_seconds": {"type": "number"}, "keep_pause_seconds": {"type": "number"},
+               "fillers": {"type": "boolean"}, "repeats": {"type": "boolean"},
+               "preview": {"type": "boolean"}, "name": _S}), _clean_up_speech, SAFE_WRITE),
+    Tool("place_broll", "Lay B-roll over the open timeline: Claude looks at every clip in the bin "
+         "(cached), reads the cut's transcript, and places cutaways that match the words on the first "
+         "free track above (video only -- the interview sound stays). coverage = share of runtime "
+         "(0.3-0.6). On a duplicate unless in_place.",
+         _obj({"bin": _S, "clips": {"type": "array", "items": _S}, "coverage": {"type": "number"},
+               "brief": _S, "in_place": {"type": "boolean"}, "name": _S}), _place_broll, SAFE_WRITE),
+    Tool("add_graphic", "Add a designed title or lower third at at_seconds (timeline seconds) on a "
+         "free track above the picture -- never inserted into the edit. style: boxed (plate + accent "
+         "bar lower third), clean (text + accent line), title_card (big centred over picture), "
+         "title_card_solid (on a dark card). Eased fade/slide in and out. Max ~5 s each. accent: hex colour.",
+         _obj({"text": _S, "subtext": _S, "at_seconds": {"type": "number"}, "seconds": {"type": "number"},
+               "style": {"type": "string", "enum": ["boxed", "clean", "title_card", "title_card_solid"]},
+               "accent": _S}, ["text", "at_seconds"]), _add_graphic, WRITE),
+    Tool("add_transitions", "Add transitions -- dissolve, dip_to_black, dip_to_white -- at cuts of "
+         "the main track (at_cuts: [1,3] = 1st and 3rd cut; omit for every cut), optionally fade_in / "
+         "fade_out at the ends. Builds a NEW timeline via FCPXML (Resolve has no script call for "
+         "transitions). Clips need handles. Do this BEFORE graphics/colour: those don't survive the trip.",
+         _obj({"kind": {"type": "string", "enum": ["dissolve", "dip_to_black", "dip_to_white"]},
+               "seconds": {"type": "number"}, "at_cuts": {"type": "array", "items": _I},
+               "fade_in": {"type": "boolean"}, "fade_out": {"type": "boolean"}, "name": _S}),
+         _add_transitions, SAFE_WRITE),
+    Tool("add_captions", "Caption the open timeline with Resolve's own speech-to-text: a new subtitle "
+         "track. style social (short single lines for 9:16/muted autoplay), broadcast, netflix.",
+         _obj({"style": {"type": "string", "enum": ["social", "broadcast", "netflix"]}}), _add_captions, WRITE),
     # Resolve's own tools
     Tool("transcribe_timeline", "Transcribe the open timeline with Resolve's built-in speech-to-text "
          "(free, local, word-accurate timing, keeps ums/uhs). Runs on a throwaway copy -- the timeline "
