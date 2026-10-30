@@ -1114,9 +1114,15 @@ def run(ctx, source, project, subject, display_name, interviewer, model_tier, ad
     click.echo(f"\nFull pipeline finished in {time.monotonic() - start:.1f}s")
 
 
-def _connect_or_die() -> resolve_connection.ResolveHandles:
+def _agent_connect() -> resolve_connection.ResolveHandles:
+    """The agent attaches to Resolve in any state: no project or timeline
+    open is something it can fix (open_project, create_timeline)."""
+    return resolve_connection.connect(require_project=False, require_timeline=False)
+
+
+def _connect_or_die(agent: bool = False) -> resolve_connection.ResolveHandles:
     try:
-        return resolve_connection.connect()
+        return _agent_connect() if agent else resolve_connection.connect()
     except resolve_connection.ResolveConnectionError as exc:
         raise click.ClickException(
             f"Could not connect to Resolve: {exc}\n\n"
@@ -2179,11 +2185,11 @@ def agent(instruction: tuple, yes: bool, model: Optional[str], max_steps: int):
     if not config.ANTHROPIC_API_KEY:
         raise click.ClickException("ANTHROPIC_API_KEY isn't set -- run `theodore setup`.")
 
-    handles = _connect_or_die()
+    handles = _connect_or_die(agent=True)
     ctx = agent_tools.AgentContext(
-        connect=resolve_connection.connect,
+        connect=_agent_connect,
         confirm=(lambda _d: True) if yes else (lambda d: click.confirm(f"\nConfirm: {d}", default=False)),
-        project_name=handles.project.GetName(),
+        project_name=handles.project.GetName() if handles.project else "",
     )
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
@@ -2266,10 +2272,10 @@ def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool
         out("confirm", text=description)
         return (read_line() or "").lower() in ("y", "yes")
 
-    handles = _connect_or_die()
+    handles = _connect_or_die(agent=True)
     ctx = agent_tools.AgentContext(
-        connect=resolve_connection.connect, confirm=confirm,
-        project_name=handles.project.GetName(), theodore_project=project,
+        connect=_agent_connect, confirm=confirm,
+        project_name=handles.project.GetName() if handles.project else "", theodore_project=project,
     )
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     history: list = []
@@ -2289,7 +2295,9 @@ def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool
         elif kind == "nudge":
             out("note", text=a[0])
 
-    out("ready", text=f"Connected to '{ctx.project_name}' via {handles.via}. What would you like to do?",
+    where = (f"'{ctx.project_name}'" + ("" if handles.timeline else " (no timeline open)")
+             if ctx.project_name else "Resolve (no project open)")
+    out("ready", text=f"Connected to {where} via {handles.via}. What would you like to do?",
         project=ctx.project_name, via=handles.via)
     while True:
         line = read_line()
@@ -2425,7 +2433,7 @@ def study_cmd(video: str, name: Optional[str], no_vision: bool, no_transcript: b
                              use_transcript=not no_transcript,
                              progress=lambda msg: click.echo(f"  {msg}..."))
     click.echo("")
-    click.echo((Path(result["dir"]) / "report.md").read_text())
+    click.echo((Path(result["dir"]) / "report.md").read_text(encoding="utf-8"))
     click.echo(f"Saved to {result['dir']}")
 
 

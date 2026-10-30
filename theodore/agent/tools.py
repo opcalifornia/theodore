@@ -73,6 +73,7 @@ class Tool:
     handler: Callable
     kind: str = READ
     needs_resolve: bool = True  # False: works on files only, runs even with Resolve closed
+    needs_timeline: bool = True  # False: works with no project/timeline open (opens or makes one)
 
     def api_spec(self) -> dict:
         return {"name": self.name, "description": self.description,
@@ -185,6 +186,9 @@ def _find_timeline(h, name: str):
 # ---------------------------------------------------------------------------
 
 def _project_info(ctx, h):
+    if h.project is None:
+        return {"project": None, "resolve": h.product, "version": h.version, "studio": h.is_studio,
+                "note": "No project open. Use list_projects / open_project."}
     names = []
     count = int(getattr(h.project, "GetTimelineCount", lambda: 0)() or 0)
     for i in range(1, count + 1):
@@ -192,12 +196,13 @@ def _project_info(ctx, h):
         if tl:
             names.append(tl.GetName())
     return {"project": h.project.GetName(), "resolve": h.product, "version": h.version,
-            "studio": h.is_studio, "current_timeline": h.timeline.GetName(),
+            "studio": h.is_studio, "current_timeline": h.timeline.GetName() if h.timeline else None,
             "timelines": names, "connected_via": h.via}
 
 
 def _list_timelines(ctx, h):
-    return {"current": h.timeline.GetName(), "timelines": _project_info(ctx, h)["timelines"]}
+    return {"current": h.timeline.GetName() if h.timeline else None,
+            "timelines": _project_info(ctx, h).get("timelines", [])}
 
 
 def _set_current_timeline(ctx, h, name):
@@ -413,9 +418,20 @@ _API_TARGETS = {
 }
 
 
-def _call_resolve_api(ctx, h, target, method, args=None):
-    if target not in _API_TARGETS:
-        raise ToolError(f"target must be one of {sorted(_API_TARGETS)}")
+def _call_resolve_api(ctx, h, target, method, args=None, item=None):
+    if target == "timeline_item":
+        # Per-clip methods: Stabilize, SmartReframe, CreateMagicMask, SetProperty,
+        # SetLUT via GetNodeGraph, SetCDL, AddVersion, SetClipColor ...
+        if not item or h.timeline is None:
+            raise ToolError("timeline_item needs item={track_type, track_index, item_index} "
+                            "(indices from list_track_items) and an open timeline.")
+        items = _track_items(h.timeline, item.get("track_type", VIDEO), int(item.get("track_index", 1)))
+        try:
+            clip_obj = items[int(item.get("item_index", 0))]
+        except (IndexError, ValueError):
+            raise ToolError(f"No item {item} -- the track has {len(items)} items.")
+    elif target not in _API_TARGETS:
+        raise ToolError(f"target must be one of {sorted(_API_TARGETS) + ['timeline_item']}")
     if method.startswith("_"):
         raise ToolError("Private attributes aren't callable.")
     if method in FORBIDDEN_API:
@@ -429,7 +445,10 @@ def _call_resolve_api(ctx, h, target, method, args=None):
         safety.ensure_checkpoint(h, ctx.safety, ctx.instruction or method)
         h = ctx.handles()
         ctx.mutated, ctx.verified_since_mutation = True, False
-    obj = _API_TARGETS[target](h)
+    obj = clip_obj if target == "timeline_item" else _API_TARGETS[target](h)
+    if target == "timeline_item" and not read_only:
+        obj = _track_items(ctx.handles().timeline, item.get("track_type", VIDEO),
+                           int(item.get("track_index", 1)))[int(item.get("item_index", 0))]
     fn = getattr(obj, method, None)
     if fn is None:
         raise ToolError(f"{target} has no method {method!r} in this Resolve build.")
@@ -469,6 +488,115 @@ def _theodore_edit(ctx, h, command, args=None):
     if command not in _THEODORE_EDIT:
         raise ToolError(f"editing commands: {sorted(_THEODORE_EDIT)}")
     return _run_theodore(ctx, h, command, args)
+
+
+# ---------------------------------------------------------------------------
+# handlers: projects
+# ---------------------------------------------------------------------------
+
+def _list_projects(ctx, h):
+    pm = h.project_manager
+    return {"current": h.project.GetName() if h.project else None,
+            "folder": pm.GetCurrentFolder() if hasattr(pm, "GetCurrentFolder") else None,
+            "projects": _as_list(pm.GetProjectListInCurrentFolder()),
+            "folders": _as_list(pm.GetFolderListInCurrentFolder())}
+
+
+def _open_project(ctx, h, name):
+    pm = h.project_manager
+    if h.project is not None and h.project.GetName() == name:
+        return {"opened": name, "note": "Already open."}
+    if h.project is not None:
+        pm.SaveProject()  # never lose the editor's work when switching
+    project = pm.LoadProject(name)
+    if not project:
+        raise ToolError(f"Could not open {name!r}. Use list_projects for exact names.")
+    ctx.project_name = name
+    tl = project.GetCurrentTimeline()
+    return {"opened": name, "current_timeline": tl.GetName() if tl else None,
+            "note": "The previous project was saved first."}
+
+
+def _create_project(ctx, h, name):
+    pm = h.project_manager
+    if h.project is not None:
+        pm.SaveProject()
+    project = pm.CreateProject(name)
+    if not project:
+        raise ToolError(f"Could not create project {name!r} (name taken?).")
+    ctx.project_name = name
+    return {"created": name}
+
+
+# ---------------------------------------------------------------------------
+# handlers: moving clips
+# ---------------------------------------------------------------------------
+
+def _move_clips(ctx, h, offset_seconds=None, offset_frames=None, tracks=None, from_seconds=None,
+                to_seconds=None, in_place=False, new_name=None):
+    from theodore.resolve import timeline_ops
+    fps = float(_fps(h) or 24)
+    if offset_frames is None:
+        if offset_seconds is None:
+            raise ToolError("Give offset_seconds (e.g. 60) or offset_frames.")
+        offset_frames = round(float(offset_seconds) * fps)
+    start = h.timeline.GetStartFrame()
+    frm = start + round(float(from_seconds) * fps) if from_seconds is not None else None
+    to = start + round(float(to_seconds) * fps) if to_seconds is not None else None
+    try:
+        res = timeline_ops.move_clips(h, int(offset_frames), tracks=tracks, from_frame=frm, to_frame=to,
+                                      on_duplicate=not in_place, new_name=new_name)
+    except timeline_ops.TimelineOpError as exc:
+        raise ToolError(str(exc))
+    out = res.as_dict()
+    out["offset_seconds"] = round(res.offset_frames / fps, 3)
+    out["note"] = ("Edited the open timeline directly (a checkpoint copy was made first)." if in_place else
+                   f"Built on a DUPLICATE '{res.timeline}', now open; '{res.original}' is untouched.")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# handlers: Resolve's own tools (transcription, reframing, docs)
+# ---------------------------------------------------------------------------
+
+def _transcribe_timeline(ctx, h, detail="sentences"):
+    from theodore.resolve import transcribe
+    try:
+        result = transcribe.transcribe_timeline(h, word_level=True)
+    except transcribe.TranscribeError as exc:
+        raise ToolError(str(exc))
+    out = ctx.scratch() / f"transcript-{len(list(ctx.scratch().glob('transcript-*.json'))):03d}.json"
+    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    start = h.timeline.GetStartFrame()
+    sents = [{**x, "timeline_start_frame": start + x["start_frame"], "timeline_end_frame": start + x["end_frame"]}
+             for x in result["sentences"]]
+    data = {"timeline": result["timeline"], "fps": result["fps"], "words": len(result["words"]),
+            "sentences": sents, "saved_to": str(out), "engine": result["engine"],
+            "note": "Times are seconds from the timeline start; timeline_*_frame are absolute frames."}
+    if detail == "words":
+        data["word_list"] = [{**w, "timeline_frame": start + w["start_frame"]} for w in result["words"]]
+    return data
+
+
+def _make_social_version(ctx, h, aspect="9:16", width=None, height=None, name=None, smart_reframe=True):
+    from theodore.resolve import timeline_ops
+    try:
+        return timeline_ops.make_aspect_version(h, aspect, name=name, width=width, height=height,
+                                                smart_reframe=smart_reframe)
+    except timeline_ops.TimelineOpError as exc:
+        raise ToolError(str(exc))
+
+
+def _resolve_api_docs(ctx, h, query=None, section=None):
+    from theodore.resolve import docs
+    if section:
+        text = docs.section(section)
+        if not text:
+            raise ToolError(f"No section {section!r}. Try a query instead.")
+        return {"section": section, "text": text[:12000]}
+    if not query:
+        raise ToolError("Give a query (e.g. 'subtitle', 'SetProperty', 'render settings') or a section name.")
+    return docs.search(query)
 
 
 # ---------------------------------------------------------------------------
@@ -537,29 +665,29 @@ _RANGES = {"type": "array", "items": _obj(
 TOOLS = [
     # project
     Tool("get_project_info", "Project name, Resolve version/edition, current timeline, all timelines.",
-         _obj({}), _project_info, READ),
+         _obj({}), _project_info, READ, needs_timeline=False),
     Tool("list_timelines", "Names of every timeline in the project and which is open.",
-         _obj({}), _list_timelines, READ),
+         _obj({}), _list_timelines, READ, needs_timeline=False),
     Tool("set_current_timeline", "Open a timeline by name.", _obj({"name": _S}, ["name"]),
-         _set_current_timeline, NAVIGATE),
+         _set_current_timeline, NAVIGATE, needs_timeline=False),
     Tool("undo_last_checkpoint", "Undo: switch back to the checkpoint taken before this session's "
          "first edit. Non-destructive -- the edited timeline stays.", _obj({}), _undo, NAVIGATE),
     Tool("remember_preference", "Store an editor preference for this project (caption style, "
          "render preset, naming) so it's followed in future sessions.",
-         _obj({"key": _S, "value": _S}, ["key", "value"]), _remember, READ),
+         _obj({"key": _S, "value": _S}, ["key", "value"]), _remember, READ, needs_timeline=False),
     # media pool
-    Tool("list_media_pool", "Every bin and the clip names in it.", _obj({}), _list_media_pool, READ),
+    Tool("list_media_pool", "Every bin and the clip names in it.", _obj({}), _list_media_pool, READ, needs_timeline=False),
     Tool("import_media", "Import files from disk into the media pool.",
-         _obj({"paths": {"type": "array", "items": _S}}, ["paths"]), _import_media, SAFE_WRITE),
+         _obj({"paths": {"type": "array", "items": _S}}, ["paths"]), _import_media, SAFE_WRITE, needs_timeline=False),
     Tool("create_bin", "Create a bin in the media pool root.", _obj({"name": _S}, ["name"]),
-         _create_bin, SAFE_WRITE),
+         _create_bin, SAFE_WRITE, needs_timeline=False),
     # timeline
     Tool("get_timeline_info", "Name, fps, start frame, items per track, duration, marker count. "
          "Use this to check state.", _obj({}), _timeline_info, READ),
     Tool("list_track_items", "Clips on one track: name, start, end, duration (timeline frames).",
          _obj({"track_type": _TRACK, "track_index": _I}, ["track_type"]), _list_track_items, READ),
     Tool("create_timeline", "Create an empty timeline.", _obj({"name": _S}, ["name"]),
-         _create_timeline, SAFE_WRITE),
+         _create_timeline, SAFE_WRITE, needs_timeline=False),
     Tool("duplicate_timeline", "Duplicate the open timeline under a new name.",
          _obj({"name": _S}, ["name"]), _duplicate_timeline, SAFE_WRITE),
     Tool("append_clips", "Append media pool clips to the open timeline. Frames are source frames.",
@@ -590,14 +718,14 @@ TOOLS = [
          "the playhead to `frame`) and shows it to you. REQUIRED after every edit.",
          _obj({"frame": _I}), _export_frame, READ),
     # deliver
-    Tool("list_render_presets", "Render presets available.", _obj({}), _list_render_presets, READ),
+    Tool("list_render_presets", "Render presets available.", _obj({}), _list_render_presets, READ, needs_timeline=False),
     Tool("queue_render", "Load a preset and queue a render job for the open timeline.",
          _obj({"preset": _S, "target_dir": _S, "custom_name": _S}, ["preset", "target_dir"]),
          _queue_render, SAFE_WRITE),
     Tool("start_render", "Start rendering queued jobs (all, or the given ids). Asks the editor "
          "to confirm.", _obj({"job_ids": {"type": "array", "items": _S}}), _start_render, RENDER),
     Tool("get_render_status", "Whether a render is running, and one job's status.",
-         _obj({"job_id": _S}), _render_status, READ),
+         _obj({"job_id": _S}), _render_status, READ, needs_timeline=False),
     # theodore's editorial engine
     Tool("theodore_analyze", "Run a read-only Theodore command: timeline-status, dupes, gaps, "
          "rejects, find, peaks, segments, ids. Extra flags go in `args`.",
@@ -608,6 +736,41 @@ TOOLS = [
          "unless `--apply` is in args -- preview first.",
          _obj({"command": _S, "args": {"type": "array", "items": _S}}, ["command"]),
          _theodore_edit, WRITE),
+    # projects
+    Tool("list_projects", "Projects in the current Project Manager folder, and which is open.",
+         _obj({}), _list_projects, READ, needs_timeline=False),
+    Tool("open_project", "Open a project by name (saves the current one first).",
+         _obj({"name": _S}, ["name"]), _open_project, NAVIGATE, needs_timeline=False),
+    Tool("create_project", "Create a new empty project and open it (saves the current one first).",
+         _obj({"name": _S}, ["name"]), _create_project, SAFE_WRITE, needs_timeline=False),
+    # moving
+    Tool("move_clips", "Move clips later (positive) or earlier (negative) on the timeline: all of "
+         "them, or only some tracks (tracks: ['V1','A1','video2']), or only clips starting between "
+         "from_seconds and to_seconds (timeline seconds from its start). Keeps each clip's source "
+         "range, grade, zoom/position/crop/opacity, enabled state, colour label; moves markers too "
+         "when everything moves. Default builds a DUPLICATE timeline; in_place=true edits the open "
+         "one (after an automatic checkpoint). Titles/generators/Fusion and speed-changed clips "
+         "can't be moved from a script -- they are listed in not_moved.",
+         _obj({"offset_seconds": {"type": "number"}, "offset_frames": _I,
+               "tracks": {"type": "array", "items": _S}, "from_seconds": {"type": "number"},
+               "to_seconds": {"type": "number"}, "in_place": {"type": "boolean"}, "new_name": _S}),
+         _move_clips, WRITE),
+    # Resolve's own tools
+    Tool("transcribe_timeline", "Transcribe the open timeline with Resolve's built-in speech-to-text "
+         "(free, local, word-accurate timing, keeps ums/uhs). Runs on a throwaway copy -- the timeline "
+         "is untouched. Returns sentences with times; detail='words' adds every word.",
+         _obj({"detail": {"type": "string", "enum": ["sentences", "words"]}}), _transcribe_timeline, READ),
+    Tool("make_social_version", "Build a social version of the open timeline at a new shape -- "
+         "aspect 9:16 (Reels/TikTok/Shorts), 4:5 (feed), 1:1, or width/height -- on a DUPLICATE, with "
+         "Resolve's Smart Reframe keeping the subject in frame on every clip. Then export_frame a few "
+         "moments to check framing; titles/graphics need repositioning by hand or by you.",
+         _obj({"aspect": _S, "width": _I, "height": _I, "name": _S, "smart_reframe": {"type": "boolean"}}),
+         _make_social_version, WRITE),
+    Tool("resolve_api_docs", "Look up what this Resolve's scripting API can do -- methods, setting "
+         "keys, constants -- from its own documentation. query: words to search; or section: a whole "
+         "object ('TimelineItem', 'Timeline', 'MediaPool', 'Project', 'Graph') or settings section. "
+         "Use before call_resolve_api for anything the named tools don't cover.",
+         _obj({"query": _S, "section": _S}), _resolve_api_docs, READ, needs_resolve=False),
     # reference videos
     Tool("study_reference", "Study a finished video file (the editor's reference): finds every "
          "cut and transition (dissolve, fade, wipe, flash, stinger), pacing, tempo and beat sync, "
@@ -626,10 +789,14 @@ TOOLS = [
          _get_reference, READ, needs_resolve=False),
     # escape hatch
     Tool("call_resolve_api", "ESCAPE HATCH: call any Resolve API method directly. Prefer the "
-         "specific tools above; use this only for what they don't cover. targets: resolve, "
-         "project_manager, project, media_pool, timeline.",
-         _obj({"target": _S, "method": _S, "args": {"type": "array"}}, ["target", "method"]),
-         _call_resolve_api, NAVIGATE),
+         "specific tools above; look methods up with resolve_api_docs first. targets: resolve, "
+         "project_manager, project, media_pool, timeline, timeline_item (one clip: pass item = "
+         "{track_type, track_index, item_index} from list_track_items -- e.g. Stabilize, "
+         "SmartReframe, CreateMagicMask, SetProperty, SetClipColor, SetCDL, AddVersion).",
+         _obj({"target": _S, "method": _S, "args": {"type": "array"},
+               "item": _obj({"track_type": _TRACK, "track_index": _I, "item_index": _I})},
+              ["target", "method"]),
+         _call_resolve_api, NAVIGATE, needs_timeline=False),
 ]
 
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
@@ -640,6 +807,11 @@ def execute(tool: Tool, ctx: AgentContext, args: dict) -> ToolOutput:
     back as ``{"ok": False, "error": ...}`` for the model to read."""
     try:
         h = ctx.handles() if tool.needs_resolve else None
+        if h is not None and tool.needs_timeline and (h.project is None or h.timeline is None):
+            raise ToolError(
+                "No timeline is open" + (f" in '{h.project.GetName()}'" if h.project else " (no project open)")
+                + ". Open one first: list_projects / open_project, then list_timelines / "
+                "set_current_timeline, or create_timeline.")
         if tool.kind in CONFIRMED_KINDS:
             if not ctx.confirm(f"{tool.name}({json.dumps(args)[:300]})"):
                 return ToolOutput({"ok": False, "error": "The editor declined this action."})

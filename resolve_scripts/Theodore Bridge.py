@@ -525,16 +525,50 @@ def start_bridge(resolve_obj, config=None):
     return server, port, state, handshake
 
 
-def _show_result(title, message):
+def watch_parent(server, handshake_path, interval=2.0):
+    """Shut down when the Resolve that launched us is gone.
+
+    Resolve starts this script in a ``fuscript`` child; if Resolve quits or
+    crashes, that child is re-parented to launchd and lived on with a dead
+    ``resolve`` object -- still answering health checks from startup state,
+    so every client trusted a bridge that could no longer do anything.
+    """
+    parent = os.getppid()
+
+    def _watch():
+        import time
+        while True:
+            time.sleep(interval)
+            if os.getppid() != parent:
+                try:
+                    with open(handshake_path) as fh:
+                        if json.load(fh).get("pid") == os.getpid():
+                            os.unlink(handshake_path)
+                except (OSError, ValueError):
+                    pass
+                try:
+                    server.shutdown()
+                finally:
+                    os._exit(0)
+
+    threading.Thread(target=_watch, name="theodore-bridge-watchdog", daemon=True).start()
+
+
+def _show_result(title, message, notify_only=False):
     print("[Theodore] %s\n%s" % (title, message))
     # THEODORE_BRIDGE_NO_DIALOG exists for tests, which run this script
     # against a fake Resolve and must not pop real dialogs on the desktop.
     if sys.platform == "darwin" and not os.environ.get("THEODORE_BRIDGE_NO_DIALOG"):
         escaped = message.replace("\\", "\\\\").replace('"', '\\"')
-        script = (
-            'display dialog "%s" with title "Theodore -- %s" '
-            'buttons {"OK"} default button "OK"' % (escaped, title)
-        )
+        if notify_only:
+            # Good news needs no click: a notification that goes away.
+            first = escaped.split("\n")[0]
+            script = 'display notification "%s" with title "Theodore -- %s"' % (first, title)
+        else:
+            script = (
+                'display dialog "%s" with title "Theodore -- %s" '
+                'buttons {"OK"} default button "OK"' % (escaped, title)
+            )
         try:
             subprocess.run(["osascript", "-e", script], check=False, timeout=30)
         except (OSError, subprocess.SubprocessError):
@@ -565,6 +599,8 @@ def main():
         )
         return
 
+    watch_parent(server, handshake)
+
     edition = "Studio" if state.is_studio() else "free edition"
     _show_result(
         "Bridge running",
@@ -575,6 +611,7 @@ def main():
         "Leave this running -- Theodore will now reach Resolve instantly from "
         "the CLI and the panel, with no reconnect per action. It shuts down "
         "with Resolve." % (state.version_string or "Resolve", edition, port, handshake),
+        notify_only=True,
     )
 
     # Default ON: measured on a real Resolve 21 Studio, the listener thread

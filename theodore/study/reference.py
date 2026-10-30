@@ -77,7 +77,7 @@ def list_references() -> list[dict]:
         bp = d / "blueprint.json"
         if bp.exists():
             try:
-                data = json.loads(bp.read_text())
+                data = json.loads(bp.read_text(encoding="utf-8"))
             except ValueError:
                 continue
             out.append({"name": d.name, "title": data.get("title"), "genre": data.get("genre"),
@@ -90,18 +90,20 @@ def load_reference(name: str) -> dict:
     if not (d / "blueprint.json").exists():
         raise FileNotFoundError(f"No studied reference called {name!r}. "
                                 f"Known: {', '.join(r['name'] for r in list_references()) or 'none'}")
-    return {"blueprint": json.loads((d / "blueprint.json").read_text()),
-            "analysis": json.loads((d / "analysis.json").read_text()), "dir": str(d)}
+    return {"blueprint": json.loads((d / "blueprint.json").read_text(encoding="utf-8")),
+            "analysis": json.loads((d / "analysis.json").read_text(encoding="utf-8")), "dir": str(d)}
 
 
 def _transcript_words(video: Path, ref_dir: Path) -> tuple[list[dict], str]:
-    from theodore.ingest.audio import extract_wav
-    from theodore.transcribe.deepgram import transcribe_audio
-    wav = extract_wav(video, ref_dir / "audio")
-    raw = transcribe_audio(wav, ref_dir)
-    alt = raw.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0]
-    words = alt.get("words", []) or []
-    return words, alt.get("transcript", "") or ""
+    """Word-level transcript from Resolve's own speech-to-text (free, local).
+    Raises with the reason when Resolve can't do it, so the study records
+    "speech unknown" rather than "nobody speaks"."""
+    from theodore.resolve import transcribe
+    result, why = transcribe.try_transcribe_file(video, word_level=True)
+    if result is None:
+        raise RuntimeError(why)
+    (ref_dir / "transcript.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result["words"], result["text"]
 
 
 def _transitions_summary(transitions: list[dict]) -> dict:
@@ -192,7 +194,7 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
                               "cut_rate_vs_loudness_r": rhythm.cut_energy_correlation(cut_times, rms, duration)}
         analysis["loudness"] = signals.integrated_loudness(video)
         if use_transcript:
-            say("Transcribing what's said")
+            say("Transcribing what's said (Resolve speech-to-text)")
             try:
                 words, transcript_text = _transcript_words(video, ref_dir)
             except Exception as exc:  # noqa: BLE001 -- the rest of the study still stands
@@ -247,9 +249,9 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
     }
     analysis["claude_calls"] = cost.calls
 
-    (ref_dir / "analysis.json").write_text(json.dumps(analysis, indent=2))
-    (ref_dir / "blueprint.json").write_text(json.dumps(blueprint, indent=2))
-    (ref_dir / "report.md").write_text(render_report(blueprint, analysis))
+    (ref_dir / "analysis.json").write_text(json.dumps(analysis, indent=2), encoding="utf-8")
+    (ref_dir / "blueprint.json").write_text(json.dumps(blueprint, indent=2), encoding="utf-8")
+    (ref_dir / "report.md").write_text(render_report(blueprint, analysis), encoding="utf-8")
     shutil.rmtree(ref_dir / "audio", ignore_errors=True)
     say("Done")
     return {"name": name, "dir": str(ref_dir), "blueprint": blueprint, "analysis": analysis}

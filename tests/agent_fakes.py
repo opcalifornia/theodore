@@ -99,7 +99,7 @@ def make_resolve():
 
 
 def connect_factory(resolve, project):
-    def connect():
+    def connect(**_options):  # require_project / require_timeline / agent
         return ResolveHandles(
             resolve=resolve, project_manager=resolve.project_manager, project=project,
             timeline=project.current_timeline, via="fake",

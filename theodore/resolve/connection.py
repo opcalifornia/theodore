@@ -88,7 +88,7 @@ def _requested_transport() -> str:
 # Route 1: the bridge
 # ---------------------------------------------------------------------------
 
-def _connect_via_bridge() -> ResolveHandles:
+def _connect_via_bridge(require_project: bool = True, require_timeline: bool = True) -> ResolveHandles:
     client = bridge_client.connect_bridge()
     info = client.health()
     resolve_obj = client.root()
@@ -102,14 +102,14 @@ def _connect_via_bridge() -> ResolveHandles:
         )
 
     project = project_manager.GetCurrentProject()
-    if project is None:
+    if project is None and require_project:
         raise ResolveConnectionError(
             "Resolve is running and the bridge is connected, but no project is "
             "open. Open the project you want to work in, then try again."
         )
 
-    timeline = project.GetCurrentTimeline()
-    if timeline is None:
+    timeline = project.GetCurrentTimeline() if project is not None else None
+    if timeline is None and require_timeline:
         raise ResolveConnectionError(
             f"Project '{project.GetName()}' is open, but it has no current "
             "timeline. Open (or create) a timeline in the Edit page, then "
@@ -157,7 +157,7 @@ def _import_scripting_module():
     return dvr_script
 
 
-def _connect_via_external() -> ResolveHandles:
+def _connect_via_external(require_project: bool = True, require_timeline: bool = True) -> ResolveHandles:
     dvr_script = _import_scripting_module()
 
     resolve = dvr_script.scriptapp("Resolve")
@@ -185,14 +185,14 @@ def _connect_via_external() -> ResolveHandles:
         )
 
     project = project_manager.GetCurrentProject()
-    if project is None:
+    if project is None and require_project:
         raise ResolveConnectionError(
             "Resolve is running, but no project is open. Open the project "
             "you want to write markers into, then try again."
         )
 
-    timeline = project.GetCurrentTimeline()
-    if timeline is None:
+    timeline = project.GetCurrentTimeline() if project is not None else None
+    if timeline is None and require_timeline:
         raise ResolveConnectionError(
             f"Project '{project.GetName()}' is open, but it has no current "
             "timeline. Open (or create) a timeline in the Edit page, then "
@@ -223,10 +223,12 @@ def _connect_via_external() -> ResolveHandles:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def connect() -> ResolveHandles:
+def connect(require_project: bool = True, require_timeline: bool = True) -> ResolveHandles:
     """Connect to a running Resolve, preferring the bridge.
 
-    Requires Resolve to already be running with a project and timeline open.
+    By default requires a project and timeline open. The agent passes False
+    for both: it can open a project or create a timeline itself, so "nothing
+    open yet" is a state to work from, not an error.
     Theodore never launches Resolve and never guesses which project to use.
 
     Re-reads the bridge handshake every call, so a Resolve that was restarted
@@ -236,10 +238,10 @@ def connect() -> ResolveHandles:
     transport = _requested_transport()
 
     if transport == EXTERNAL:
-        return _connect_via_external()
+        return _connect_via_external(require_project, require_timeline)
 
     try:
-        return _connect_via_bridge()
+        return _connect_via_bridge(require_project, require_timeline)
     except bridge_client.BridgeUnavailable as bridge_exc:
         if transport == BRIDGE:
             raise ResolveConnectionError(str(bridge_exc)) from bridge_exc
@@ -254,7 +256,7 @@ def connect() -> ResolveHandles:
         ) from bridge_exc
 
     try:
-        return _connect_via_external()
+        return _connect_via_external(require_project, require_timeline)
     except ResolveConnectionError as external_exc:
         # Both routes failed. Lead with the bridge, since it is the one that
         # works regardless of edition and preference settings, and always

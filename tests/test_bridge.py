@@ -562,7 +562,7 @@ def test_script_blocks_by_default_so_resolve_cannot_kill_the_listener(tmp_path, 
         server.shutdown(); server.server_close()
         return _Srv(), port, state, hs
     monkeypatch.setattr(bridge_module, "start_bridge", fake_start)
-    monkeypatch.setattr(bridge_module, "_show_result", lambda *a: None)
+    monkeypatch.setattr(bridge_module, "_show_result", lambda *a, **kw: None)
     monkeypatch.setattr(bridge_module, "resolve", resolve_obj, raising=False)
     bridge_module.main()
     assert served == [True]
