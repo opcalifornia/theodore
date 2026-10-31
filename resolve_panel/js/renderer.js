@@ -344,6 +344,7 @@ function ensureChatSession() {
   turn = null;
   if (!first) addMessage('system', null, `switched to project "${key || '(none)'}"`);
   setBusy(true);
+  if (first) addMessage('system', null, 'Starting Claude...');
   showTyping(true);
   window.theodore.startChat(key);
 }
@@ -653,14 +654,25 @@ async function init() {
         + 'Theodore Bridge (once per Resolve session). If it is not in that '
         + 'menu, run: theodore install-bridge, then fully quit and reopen Resolve.';
   }
-  await pollResolveStatus();
-  setInterval(pollResolveStatus, RESOLVE_POLL_INTERVAL_MS);
 
   // Start the chat only once the project picker has settled: starting it
   // first meant the very first message found a "changed" project and
   // restarted the agent mid-send.
   await safely(refreshProjects);
   ensureChatSession();
+
+  // Status polling comes AFTER the chat starts and is never awaited. Inside
+  // Resolve it makes a live call into Resolve's API; if that is slow or
+  // stalls, awaiting it here used to hold the chat back so the panel sat
+  // blank. Overlapping polls are skipped for the same reason.
+  let polling = false;
+  const pollOnce = async () => {
+    if (polling) return;
+    polling = true;
+    try { await pollResolveStatus(); } finally { polling = false; }
+  };
+  pollOnce();
+  setInterval(pollOnce, RESOLVE_POLL_INTERVAL_MS);
 }
 
 init();
