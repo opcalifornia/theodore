@@ -20,7 +20,7 @@ from typing import Optional
 
 from theodore.resolve import timecode
 
-GRAPHICS_BIN = "Theodore Graphics"
+GRAPHICS_BIN = "Graphics"
 ANIM = 8           # frames for the in/out animation
 TITLE_FRAMES = 120  # Resolve's standard title length (5 s at 24 fps)
 

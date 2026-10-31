@@ -705,6 +705,22 @@ def _speaker_follow(ctx, h, aspect="9:16", zoom=1.35, names=None, name=None):
         raise ToolError(str(exc))
 
 
+def _organize_project(ctx, h, bins=True, tracks=True):
+    from theodore.resolve import organize
+    out = {}
+    if bins:
+        out["bins"] = organize.organize_media(h)
+    if tracks and h.timeline is not None:
+        out["tracks"] = organize.label_tracks(ctx.handles().timeline)
+    return out
+
+
+#: Builders whose result should come out with its tracks named.
+_LABEL_AFTER = {"build_story_cut", "clean_up_speech", "place_broll", "add_graphic", "add_transitions",
+                "add_captions", "make_social_version", "build_multicam", "speaker_follow", "match_look",
+                "move_clips", "append_clips"}
+
+
 def _add_captions(ctx, h, style="social"):
     from theodore.resolve import transcribe
     try:
@@ -936,6 +952,12 @@ TOOLS = [
          "Follow with add_captions and add_graphic for a finished social piece.",
          _obj({"aspect": _S, "zoom": {"type": "number"}, "names": {"type": "array", "items": _S}, "name": _S}),
          _speaker_follow, SAFE_WRITE),
+    Tool("organize_project", "Tidy the project like an assistant editor: footage into Footage/<camera> "
+         "bins, sound-only into Audio, multicams, graphics, stills and timelines (checkpoints in "
+         "Timelines/Checkpoints) into their bins -- bins the editor made are left alone; and name the open "
+         "timeline's tracks (A-Roll, B-Roll, Graphics, Lav <name>, Dialogue, Music, Captions).",
+         _obj({"bins": {"type": "boolean"}, "tracks": {"type": "boolean"}}), _organize_project, SAFE_WRITE,
+         needs_timeline=False),
     Tool("add_captions", "Caption the open timeline with Resolve's own speech-to-text: a new subtitle "
          "track. style social (short single lines for 9:16/muted autoplay), broadcast, netflix.",
          _obj({"style": {"type": "string", "enum": ["social", "broadcast", "netflix"]}}), _add_captions, WRITE),
@@ -1006,6 +1028,14 @@ def execute(tool: Tool, ctx: AgentContext, args: dict) -> ToolOutput:
         out = tool.handler(ctx, h, **args)
         out = out if isinstance(out, ToolOutput) else ToolOutput(out)
         out.data = {"ok": True, **out.data}
+        if tool.name in _LABEL_AFTER and out.data.get("ok", True):
+            try:
+                from theodore.resolve import organize
+                current = ctx.handles().timeline
+                if current is not None:
+                    out.data["tracks_named"] = organize.label_tracks(current)
+            except Exception:  # noqa: BLE001 -- naming tracks is a courtesy, never a failure
+                pass
         if tool.kind in MUTATING_KINDS:
             if cp:
                 out.data["checkpoint_created"] = cp.name

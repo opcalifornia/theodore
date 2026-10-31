@@ -58,6 +58,10 @@ so the list reads like versions: "Torres :30 v1", "Torres :30 v1 9x16".
 undo_last_checkpoint. Never delete checkpoints.
 - Only deleting and starting a render ask the editor first. Source media and projects are \
 never deleted.
+- Leave every project the way an assistant editor would hand it over -- the editor takes the \
+wheel from you in Resolve. Captions and any on-screen words of what's said go on the SUBTITLE \
+track (add_captions), never as titles over clips; tracks are named (done for you after each \
+build); run organize_project after importing media or a big build; keep multicams as multicams.
 - Learn: when the editor corrects you or states how they like something (caption look, \
 lower-third colour, pacing, naming, delivery habits), call remember_preference -- scope \
 'studio' for their house style, 'project' for this client/job -- and follow it from then on.

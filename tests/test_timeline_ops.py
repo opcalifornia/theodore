@@ -302,3 +302,45 @@ def test_docs_search_finds_methods():
         pytest.skip("Resolve's scripting README isn't installed here")
     hits = docs.search("SmartReframe")["matches"]
     assert any("SmartReframe()" in m["text"] for m in hits)
+
+
+def test_tracks_get_named_for_what_is_on_them():
+    from theodore.resolve import organize
+
+    class Mpi:
+        def __init__(self, kind):
+            self.kind = kind
+
+        def GetClipProperty(self, key=None):
+            return self.kind
+
+    class It:
+        def __init__(self, name, kind):
+            self.name, self.mpi = name, (Mpi(kind) if kind else None)
+
+        def GetName(self):
+            return self.name
+
+        def GetMediaPoolItem(self):
+            return self.mpi
+
+    class T:
+        tracks = {"video": [[It("interview.mov", "Video + Audio")], [It("broll.mov", "Video")],
+                            [It("LT - Maya", "Compound")]],
+                  "audio": [[It("LAV_Daniel.wav", "Audio")], [It("music bed.wav", "Audio")]],
+                  "subtitle": [[It("Hi", None)]]}
+        named = {}
+
+        def GetTrackCount(self, kind):
+            return len(self.tracks.get(kind, []))
+
+        def GetItemListInTrack(self, kind, idx):
+            return self.tracks[kind][idx - 1]
+
+        def SetTrackName(self, kind, idx, name):
+            self.named[(kind, idx)] = name
+            return True
+
+    names = organize.label_tracks(T())
+    assert names == {"V1": "A-Roll", "V2": "B-Roll", "V3": "Graphics", "A1": "Lav Daniel", "A2": "Music",
+                     "ST1": "Captions"}
