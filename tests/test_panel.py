@@ -97,3 +97,37 @@ def test_cameras_without_sound_are_assumed_to_start_together_and_say_so(monkeypa
     notes = panel.sync(cams, [lav])
     assert [c.start for c in cams] == [0.0, 0.0] and lav.start == 0.0
     assert notes and "assumed to start together" in notes[0]
+
+
+def test_a_very_long_hold_keeps_getting_reactions_that_rotate_between_listeners():
+    frames = int(70 / panel.HOP)
+    a = np.zeros(frames, bool)
+    a[int(5 / panel.HOP):int(55 / panel.HOP)] = True       # A talks 50 s; B and C listen
+    cams = _two_person_cams() + [panel.Source("camC", "", "camera", {}, person="C", role="close")]
+    cuts = panel.plan_cut(cams, {"A": a, "B": np.zeros(frames, bool), "C": np.zeros(frames, bool)}, 70.0)
+    reacts = [c for c in cuts if "listening" in c[3]]
+    assert len(reacts) >= 4 and {c[2] for c in reacts} == {"camB", "camC"}
+    held = [c[1] - c[0] for c in cuts if c[2] == "camA"]
+    assert max(held) <= 12 and all(c[1] - c[0] >= panel.MIN_SHOT - 1e-9 for c in cuts)
+
+
+def test_a_speaker_who_pauses_briefly_is_still_one_long_hold_that_gets_reactions():
+    frames = int(70 / panel.HOP)
+    a = np.zeros(frames, bool)
+    for start in (5, 18, 31, 44):                         # A talks 13 s at a time, 1 s breaths between
+        a[int(start / panel.HOP):int((start + 12) / panel.HOP)] = True
+    cuts = panel.plan_cut(_two_person_cams(), {"A": a, "B": np.zeros(frames, bool)}, 70.0)
+    held = [c[1] - c[0] for c in cuts if c[2] == "camA"]
+    assert max(held) <= 12 and len([c for c in cuts if "listening" in c[3]]) >= 4
+
+
+def test_a_long_wide_cuts_away_to_the_people_in_the_room_but_the_opening_wide_stays():
+    frames = int(80 / panel.HOP)
+    c = np.zeros(frames, bool)
+    c[int(5 / panel.HOP):int(65 / panel.HOP)] = True       # C has no camera: the wide holds for a minute
+    silent = np.zeros(frames, bool)
+    cuts = panel.plan_cut(_two_person_cams(), {"A": silent, "B": silent, "C": c}, 80.0)
+    assert cuts[0][3] == "opening wide"
+    assert len([x for x in cuts if "cutaway" in x[3]]) >= 4
+    assert cuts[0][2] == "wide" and cuts[0][1] >= 3 and cuts[-1][2] == "wide"
+    assert max(x[1] - x[0] for x in cuts if x[2] == "wide") <= 14

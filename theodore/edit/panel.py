@@ -41,6 +41,8 @@ LONG_ANSWER = 12.0
 LEAD = 0.35            # a cut to a new speaker lands this early: the eye finds them as the voice arrives
 REACTION_AFTER = 7.0   # a single angle held this long gets a reaction shot of someone listening
 REACTION_LEN = 2.0
+WIDE_MAX = 14.0         # a wide held longer than this gets cutaways
+REACTION_EVERY = 8.0   # long holds get a reaction about this often
 
 
 class PanelError(RuntimeError):
@@ -286,6 +288,14 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
                 segs[lo:hi + 1] = [[segs[lo][0], segs[hi][1], keep[2], keep[3]]]
                 changed = True
                 break
+    # Folding can leave neighbours on the same angle: they are one shot, and one long hold needs its reactions.
+    merged_segs = []
+    for seg in segs:
+        if merged_segs and merged_segs[-1][2] == seg[2]:
+            merged_segs[-1][1] = seg[1]
+        else:
+            merged_segs.append(seg)
+    segs = merged_segs
     # Cut a little BEFORE the new speaker's first word (the sound of the lav is separate, so only the
     # picture moves) -- never so far that the shot we leave drops under MIN_SHOT.
     lead = int(round(LEAD / HOP))
@@ -304,14 +314,38 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
         speaker = reason.replace(" talking", "") if reason.endswith(" talking") else None
         others = [n for p, n in listeners.items() if p != speaker and n != cam]
         if speaker and others and dur > REACTION_AFTER:
-            cut_to = others[reacted % len(others)]
-            who = next(p for p, n in listeners.items() if n == cut_to)
-            reacted += 1
-            mid = (a + b) // 2
+            # A reaction every ~REACTION_EVERY seconds of a long hold, rotating through the listeners.
+            parts = max(2, round(dur / REACTION_EVERY))
             half = int(REACTION_LEN / HOP) // 2
-            out += [(a * HOP, (mid - half) * HOP, cam, reason),
-                    ((mid - half) * HOP, (mid + half) * HOP, cut_to, f"reaction: {who} listening"),
-                    ((mid + half) * HOP, b * HOP, cam, reason)]
+            pieces, cursor = [], a
+            for k in range(1, parts):
+                mid = a + (b - a) * k // parts
+                cut_to = others[reacted % len(others)]
+                who = next(p for p, n in listeners.items() if n == cut_to)
+                reacted += 1
+                pieces += [(cursor * HOP, (mid - half) * HOP, cam, reason),
+                           ((mid - half) * HOP, (mid + half) * HOP, cut_to, f"reaction: {who} listening")]
+                cursor = mid + half
+            pieces.append((cursor * HOP, b * HOP, cam, reason))
+            out += pieces
+        elif cam == wide and dur > WIDE_MAX and listeners:
+            # A wide held this long (cross-talk, or a speaker with no camera) cuts away to people in the room.
+            # The opening 3 s and closing 2 s of the cut stay on the wide.
+            lo = a + (int(3 / HOP) if a == 0 else 0)
+            hi = b - (int(2 / HOP) if b == frames else 0)
+            names = list(listeners.items())
+            parts = max(2, round((hi - lo) * HOP / REACTION_EVERY))
+            half = int(REACTION_LEN / HOP) // 2
+            pieces, cursor = [], a
+            for k in range(1, parts):
+                mid = lo + (hi - lo) * k // parts
+                who, cut_to = names[reacted % len(names)]
+                reacted += 1
+                pieces += [(cursor * HOP, (mid - half) * HOP, cam, reason),
+                           ((mid - half) * HOP, (mid + half) * HOP, cut_to, f"cutaway: {who} listening")]
+                cursor = mid + half
+            pieces.append((cursor * HOP, b * HOP, cam, reason))
+            out += pieces
         elif cam != wide and dur > LONG_ANSWER:
             mid = (a + b) // 2
             br = int(2.5 / HOP)
