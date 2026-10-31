@@ -565,7 +565,11 @@ function initChat() {
     const clean = paths.filter(Boolean);
     if (!clean.length) return;
     const quoted = clean.map((p) => `"${p}"`).join(' ');
-    const lead = clean.length === 1 ? 'Study this video:' : 'Study these videos:';
+    // A still is a look to match; a video is a reference to study.
+    const images = clean.every((p) => /\.(jpe?g|png|tiff?|webp|heic)$/i.test(p));
+    const lead = images
+      ? (clean.length === 1 ? 'Grade my timeline to match the look of this image:' : 'Match the look of these images:')
+      : (clean.length === 1 ? 'Study this video:' : 'Study these videos:');
     input.value = `${input.value.trim() ? input.value.trim() + '\n' : ''}${lead} ${quoted} `;
     autosize();
     input.focus();

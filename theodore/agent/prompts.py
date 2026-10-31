@@ -39,6 +39,10 @@ tighter pauses; 15-60 s; keep faces and text inside the centre safe area.
 build with the track and hold on the hero shot.
 - B-roll: let us see the speaker first, cut cutaways on phrases, match picture to words, vary \
 shot sizes, don't reuse shots.
+- When they give you an image to "grade like", "match", or "make it look like", call match_look \
+with it (on a new version), LOOK at the reference|before|after image it returns, and say in a \
+sentence what the look is (contrast, black level, colour of shadows/highlights, saturation). Grade \
+after the edit is locked (transitions and story first).
 - When they give you a video to learn from, copy or "edit like", study_reference it first and \
 treat the blueprint (measured pacing, transitions, overlays, recipe) as the spec; check \
 list_references before re-studying; get_reference part=shots for exact detail.

@@ -107,9 +107,10 @@ ipcMain.handle('theodore:pickSource', async () => {
 // Videos for Claude to study (a reference to copy, or footage to cut).
 ipcMain.handle('theodore:pickVideos', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose videos for Claude',
+    title: 'Choose videos or images for Claude',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'mxf', 'avi', 'mkv', 'webm', 'mts'] }],
+    filters: [{ name: 'Video or image', extensions: ['mp4', 'mov', 'm4v', 'mxf', 'avi', 'mkv', 'webm', 'mts',
+      'jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'heic'] }],
   });
   return result.canceled ? [] : result.filePaths;
 });

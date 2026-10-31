@@ -2229,7 +2229,10 @@ def agent(instruction: tuple, yes: bool, model: Optional[str], max_steps: int):
 @click.option("--max-steps", type=int, default=40, show_default=True)
 @click.option("--json", "as_json", is_flag=True,
               help="Emit one JSON event per line (what the Resolve panel renders).")
-def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool):
+@click.option("--engine", type=click.Choice(["auto", "claude-code", "api"]), default="auto", show_default=True,
+              help="claude-code: run on your Claude plan via Claude Code (default when installed). "
+                   "api: the Anthropic API (needs API credits).")
+def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool, engine: str):
     """A running conversation with the agent -- what the Resolve panel's chat
     box talks to. One instruction per line on stdin; the agent keeps the whole
     conversation, so "now do the same for the second timeline" works.
@@ -2239,8 +2242,11 @@ def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool
     from theodore.agent import loop as agent_loop
     from theodore.agent import tools as agent_tools
 
+    from theodore import llm
+
     sys.stdout.reconfigure(line_buffering=True)
-    if not config.ANTHROPIC_API_KEY:
+    use_claude_code = engine == "claude-code" or (engine == "auto" and llm.backend() == "claude_code")
+    if not use_claude_code and not config.ANTHROPIC_API_KEY:
         raise click.ClickException("ANTHROPIC_API_KEY isn't set -- run `theodore setup`.")
 
     def out(kind: str, **fields):
@@ -2271,6 +2277,20 @@ def agent_chat(project: str, model: Optional[str], max_steps: int, as_json: bool
     def confirm(description: str) -> bool:
         out("confirm", text=description)
         return (read_line() or "").lower() in ("y", "yes")
+
+    if use_claude_code:
+        from theodore.agent import claude_code_chat
+        try:
+            h0 = _agent_connect()
+            name = h0.project.GetName() if h0.project else ""
+            where = (f"'{name}'" + ("" if h0.timeline else " (no timeline open)")) if name else "Resolve (no project open)"
+            via = h0.via
+        except Exception as exc:  # noqa: BLE001 -- Claude can still study files and explain
+            name, where, via = "", f"Claude (Resolve not reachable yet: {str(exc).splitlines()[0][:120]})", "none"
+        claude_code_chat.run(name, project, model or os.environ.get("THEODORE_AGENT_MODEL", "claude-sonnet-5-5"),
+                             out, read_line, f"Connected to {where} via {via}, on your Claude plan. "
+                             "What would you like to do?")
+        return
 
     handles = _connect_or_die(agent=True)
     ctx = agent_tools.AgentContext(
@@ -2435,6 +2455,24 @@ def study_cmd(video: str, name: Optional[str], no_vision: bool, no_transcript: b
     click.echo("")
     click.echo((Path(result["dir"]) / "report.md").read_text(encoding="utf-8"))
     click.echo(f"Saved to {result['dir']}")
+
+
+@cli.command(name="mcp-serve")
+@click.option("--project", default="", help="Theodore project (for transcript-based tools). Optional.")
+def mcp_serve(project: str):
+    """Serve Theodore's Resolve tools over MCP (stdio) -- what the Claude Code
+    chat session drives. Not meant to be run by hand."""
+    from theodore.agent import mcp_server
+    from theodore.agent import tools as agent_tools
+
+    name = ""
+    try:
+        h = _agent_connect()
+        name = h.project.GetName() if h.project else ""
+    except Exception:  # noqa: BLE001 -- tools reconnect per call anyway
+        pass
+    mcp_server.serve(agent_tools.AgentContext(connect=_agent_connect, project_name=name,
+                                              theodore_project=project))
 
 
 @cli.command(name="agent-tools")

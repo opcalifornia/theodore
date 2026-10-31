@@ -19,9 +19,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-import anthropic
 
 from theodore import config
+from theodore.llm import make_client
 from theodore.analyze.claude_client import CostTracker, call_json
 from theodore.edit import EDITOR_MODEL, VISION_MODEL
 
@@ -90,7 +90,7 @@ def catalog(clips: list, client=None, progress=None) -> dict[str, dict]:
             out[c.GetName()] = {**json.loads(cache.read_text(encoding="utf-8")), "name": c.GetName()}
         elif path:
             todo.append(c)
-    client = client or (anthropic.Anthropic(api_key=config.require_anthropic_key()) if todo else None)
+    client = client or (make_client() if todo else None)
     for b in range(0, len(todo), 8):
         batch = todo[b:b + 8]
         say(f"Looking at B-roll {b + 1}-{b + len(batch)} of {len(todo)}")
@@ -132,7 +132,7 @@ def place_broll(h, clips: list, *, coverage: float = 0.4, brief: str = "", on_du
     from theodore.resolve import timeline_ops, transcribe
 
     say = progress or (lambda m: None)
-    client = client or anthropic.Anthropic(api_key=config.require_anthropic_key())
+    client = client or make_client()
     library = catalog(clips, client, progress=say)
     usable = {k: v for k, v in library.items() if v.get("usable", True)}
     if not usable:

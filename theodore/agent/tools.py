@@ -659,6 +659,23 @@ def _add_transitions(ctx, h, kind="dissolve", seconds=0.5, at_cuts=None, fade_in
         raise ToolError(str(exc))
 
 
+def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False, name=None, look_name=None):
+    from theodore.color import resolve_apply
+    try:
+        out = resolve_apply.match_look(h, reference, strength=float(strength), per_clip=bool(per_clip),
+                                       on_duplicate=not in_place, name=name, look_name=look_name)
+    except (FileNotFoundError, RuntimeError) as exc:
+        raise ToolError(str(exc))
+    images = []
+    if out.get("preview_image"):
+        try:
+            images = [Path(out["preview_image"]).read_bytes()]
+        except OSError:
+            pass
+    out["preview_note"] = "Image shows reference | before | after for the first clip."
+    return ToolOutput(out, images=images)
+
+
 def _add_captions(ctx, h, style="social"):
     from theodore.resolve import transcribe
     try:
@@ -861,6 +878,14 @@ TOOLS = [
                "seconds": {"type": "number"}, "at_cuts": {"type": "array", "items": _I},
                "fade_in": {"type": "boolean"}, "fade_out": {"type": "boolean"}, "name": _S}),
          _add_transitions, SAFE_WRITE),
+    Tool("match_look", "Grade the open timeline to match the look of a reference image (a still from any "
+         "film, a photo, a grade the editor likes): each clip gets its own LUT computed from its own pixels "
+         "-- tone curve (black lift, contrast, roll-off), split-toned colour by shadows/mids/highlights, "
+         "saturation -- so every shot lands on the same look. On a DUPLICATE unless in_place. strength "
+         "0.5 subtle .. 1 full. per_clip=false uses one shared LUT. Returns a reference|before|after image.",
+         _obj({"reference": _S, "strength": {"type": "number"}, "per_clip": {"type": "boolean"},
+               "in_place": {"type": "boolean"}, "name": _S, "look_name": _S}, ["reference"]),
+         _match_look, SAFE_WRITE),
     Tool("add_captions", "Caption the open timeline with Resolve's own speech-to-text: a new subtitle "
          "track. style social (short single lines for 9:16/muted autoplay), broadcast, netflix.",
          _obj({"style": {"type": "string", "enum": ["social", "broadcast", "netflix"]}}), _add_captions, WRITE),

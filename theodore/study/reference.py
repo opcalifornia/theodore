@@ -17,9 +17,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Optional
 
-import anthropic
 
 from theodore import config
+from theodore.llm import make_client
 from theodore.analyze.claude_client import CostTracker, call_json
 from theodore.study import rhythm, shots as shot_mod, signals, vision
 
@@ -210,7 +210,7 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
         analysis["transcript"] = transcript_text
 
     shot_log: dict[int, dict] = {}
-    client = client or anthropic.Anthropic(api_key=config.require_anthropic_key())
+    client = client or make_client()
     if use_vision:
         say(f"Looking at all {len(shots)} shots")
         shot_log = vision.describe_shots(client, video, shots, ref_dir / "frames", cost, progress=say)

@@ -16,9 +16,9 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-import anthropic
 
 from theodore import config
+from theodore.llm import make_client
 from theodore.analyze.claude_client import CostTracker, call_json
 from theodore.edit import EDITOR_MODEL
 
@@ -123,7 +123,7 @@ def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, 
                     for s in src["sentences"]]
     total_words = sum(len(s["text"].split()) for src in sources for s in src["sentences"])
     say(f"Claude is building the story from {len(by_id)} sentences")
-    client = client or anthropic.Anthropic(api_key=config.require_anthropic_key())
+    client = client or make_client()
     plan = call_json(
         client, pass_name="interview-story", model=EDITOR_MODEL, system=SYSTEM,
         user=(f"Brief: {brief or '(none given -- find the strongest story)'}\n"
