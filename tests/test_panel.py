@@ -88,3 +88,12 @@ def test_lines_go_to_the_face_that_moves():
     motion[1, 60:120] = 5.0    # then person 1
     sents = [{"start": 0.5, "end": 4.5}, {"start": 5.5, "end": 9.5}]
     assert reframe.attribute_lines(sents, motion, fps=12) == [0, 1]
+
+
+def test_cameras_without_sound_are_assumed_to_start_together_and_say_so(monkeypatch):
+    silent = lambda n: panel.Source(n, n, "camera", {"has_audio": False})
+    lav = panel.Source("lav", "lav", "lav", {"has_audio": True})
+    cams = [silent("c1"), silent("c2")]
+    notes = panel.sync(cams, [lav])
+    assert [c.start for c in cams] == [0.0, 0.0] and lav.start == 0.0
+    assert notes and "assumed to start together" in notes[0]

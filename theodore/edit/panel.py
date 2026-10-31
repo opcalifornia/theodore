@@ -110,15 +110,30 @@ class PanelPlan:
     notes: list = field(default_factory=list)
 
 
-def sync(cameras: list[Source], lavs: list[Source], window: float = 240.0) -> None:
-    ref = cameras[0]
+def sync(cameras: list[Source], lavs: list[Source], window: float = 240.0) -> list[str]:
+    """Line everything up from the sound. A camera with no sound can't be synced that way: it is
+    assumed to start with the reference (true of frame-locked rigs) and the notes say so. Returns notes."""
+    notes = []
+    hearing = [c for c in cameras if c.info["has_audio"]]
+    for c in cameras:
+        c.start, c.confidence = 0.0, 1.0
+    if not hearing:
+        for s in lavs:
+            s.start, s.confidence = 0.0, 1.0
+        notes.append("No camera recorded sound, so nothing could be synced from audio: every camera and mic is "
+                     "assumed to start together (right for frame-locked rigs). Check lip sync on the first cut.")
+        return notes
+    ref = hearing[0]
     ref_audio = _audio(ref.path, window * 2)
-    ref.start, ref.confidence = 0.0, 1.0
-    for s in cameras[1:] + lavs:
+    for s in [c for c in hearing if c is not ref] + lavs:
         if not s.info["has_audio"]:
             raise PanelError(f"{s.name} has no audio to sync from.")
         off, conf = offset_seconds(ref_audio, _audio(s.path, window * 2))
         s.start, s.confidence = off, conf
+    silent = [c.name for c in cameras if not c.info["has_audio"]]
+    if silent:
+        notes.append(f"{', '.join(silent)} recorded no sound: assumed to start with {ref.name}. Check lip sync.")
+    return notes
 
 
 def activity(lavs: list[Source], length: float, origin: float) -> dict[str, np.ndarray]:
@@ -316,7 +331,7 @@ def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optiona
     for i, lav in enumerate(lavs):
         lav.person = (people[i] if people and i < len(people) else
                       lav.name.replace("LAV_", "").replace("lav_", "").replace("_", " ").strip() or f"Speaker {i + 1}")
-    sync(cams, lavs)
+    sync_notes = sync(cams, lavs)
     origin = min(s.start for s in cams + lavs)
     end = max(s.start + s.info["duration"] for s in cams)
     start_all = max(s.start for s in cams)          # every camera rolling from here
@@ -324,7 +339,7 @@ def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optiona
     masks = activity(lavs, length, origin) if lavs else {}
     notes = assign_people(cams, masks, length, origin, mapping, wide)
     fps = cams[0].info["fps"]
-    plan = PanelPlan(cams, lavs, fps, length, origin, notes=notes)
+    plan = PanelPlan(cams, lavs, fps, length, origin, notes=sync_notes + notes)
     plan.speech = {p: [(a * HOP + origin, b * HOP + origin) for a, b in _runs(m)] for p, m in masks.items()}
     cuts = plan_cut(cams, masks, length)
     lo = start_all - origin
