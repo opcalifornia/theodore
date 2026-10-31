@@ -191,6 +191,14 @@ def place_broll(h, clips: list, *, coverage: float = 0.4, brief: str = "", on_du
     runtime = max((it.GetEnd() for it in (tl.GetItemListInTrack("video", 1) or [])), default=tl.GetStartFrame())
     runtime = (runtime - tl.GetStartFrame()) / fps
     lines = [f"[{s['start']:.2f}-{s['end']:.2f}s] {s['text']}" for s in tr["sentences"]]
+    from theodore.edit import compare
+    first = int(tl.GetStartFrame())
+    taken = compare._union([((it.GetStart() - first) / fps, (it.GetEnd() - first) / fps)
+                            for idx in range(2, int(tl.GetTrackCount("video") or 0) + 1)
+                            for it in (tl.GetItemListInTrack("video", idx) or [])])
+    if taken:
+        brief += ("\n\nB-roll already on the timeline (do NOT overlap; fill other lines only, and count it toward "
+                  "the coverage): " + ", ".join(f"{a:.1f}-{b:.1f}s" for a, b in taken))
     lib_text = json.dumps(list(usable.values()), separators=(",", ":"))
     say("Claude is choosing cutaways")
     plan = call_json(client, pass_name="broll-plan", model=EDITOR_MODEL, system=PLAN_SYSTEM,

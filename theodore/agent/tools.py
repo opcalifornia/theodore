@@ -730,7 +730,7 @@ def _organize_project(ctx, h, bins=True, tracks=True):
 
 
 #: Builders whose result should come out with its tracks named.
-_LABEL_AFTER = {"build_story_cut", "clean_up_speech", "place_broll", "add_graphic", "add_transitions",
+_LABEL_AFTER = {"cut_like_reference", "build_story_cut", "clean_up_speech", "place_broll", "add_graphic", "add_transitions",
                 "add_captions", "make_social_version", "build_multicam", "speaker_follow", "match_look",
                 "move_clips", "append_clips"}
 
@@ -763,6 +763,19 @@ def _note_what_i_love(ctx, h, name, words):
     try:
         return {"name": name, "editor_love": love.add_note(name, words),
                 "note": "Saved with the reference; place_broll / add_transitions with this reference lead with it."}
+    except FileNotFoundError as exc:
+        raise ToolError(str(exc))
+
+
+def _cut_like_reference(ctx, h, reference, target_seconds=60, brief="", clips=None, bin=None,
+                        use_timeline=False, broll_bin=None, broll_clips=None, story=True, clean_up=True,
+                        transitions=True, name=None):
+    from theodore.edit import pipeline
+    try:
+        return pipeline.cut_like_reference(
+            ctx.handles, reference, target_seconds=float(target_seconds), brief=brief, clips=clips, bin=bin,
+            use_timeline=bool(use_timeline), broll_bin=broll_bin, broll_clips=broll_clips, story=bool(story),
+            clean_up=bool(clean_up), transitions=bool(transitions), name=name)
     except FileNotFoundError as exc:
         raise ToolError(str(exc))
 
@@ -1041,6 +1054,18 @@ TOOLS = [
          "whenever the editor says what they like about a video -- on study_reference you can pass "
          "the same words as `love`. Add more any time; later notes refine earlier ones.",
          _obj({"name": _S, "words": _S}, ["name", "words"]), _note_what_i_love, READ, needs_resolve=False),
+    Tool("cut_like_reference", "THE one-call edit: footage + a studied reference in, a finished edit out. "
+         "Runs story (to target_seconds) -> clean-up -> B-roll (if broll_bin/broll_clips given) -> measure "
+         "against the reference and fill B-roll gaps -> transitions -> final check, each following the "
+         "reference's measured habits and what the editor loved about it. Sources like build_story_cut "
+         "(bin / clips / use_timeline). story=false starts from the open timeline as already cut. Keeps "
+         "everything built if a step fails and says where it stopped. Afterwards: look at frames "
+         "(export_frame), read `still_off`, and fix or tell the editor.",
+         _obj({"reference": _S, "target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
+               "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"},
+               "broll_bin": _S, "broll_clips": {"type": "array", "items": _S}, "story": {"type": "boolean"},
+               "clean_up": {"type": "boolean"}, "transitions": {"type": "boolean"}, "name": _S}, ["reference"]),
+         _cut_like_reference, SAFE_WRITE, needs_timeline=False),
     Tool("compare_to_reference", "Measure the OPEN timeline the way the reference was studied -- shot "
          "length, cuts/min, B-roll share, cutaway length, first cutaway, longest hold on the face -- and "
          "list what is off with a concrete fix for each. Run after building with a reference, fix the "
