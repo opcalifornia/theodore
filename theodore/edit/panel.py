@@ -485,3 +485,17 @@ def summary(plan: PanelPlan) -> dict:
         "speaking_seconds": {p: round(sum(b - a for a, b in segs), 1) for p, segs in plan.speech.items()},
         "notes": plan.notes,
     }
+
+
+def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
+                       camera_for=None, wide=None, name="Panel Multicam") -> dict:
+    """Find the cameras and lavs in the media pool, sync, cut and import: the whole multicam build."""
+    from theodore.edit import interview
+    try:
+        cams = interview.find_clips(h, cameras, camera_bin)
+        lav_clips = interview.find_clips(h, lavs, lav_bin) if (lavs or lav_bin) else []
+    except interview.InterviewError as exc:
+        raise PanelError(str(exc))
+    paths = lambda clips: [c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")]
+    plan = build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
+    return {**import_to_resolve(h, plan, name), **summary(plan)}

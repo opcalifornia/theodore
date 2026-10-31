@@ -730,21 +730,31 @@ def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False,
 
 def _build_multicam(ctx, h, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
                     camera_for=None, wide=None, name="Panel Multicam"):
-    from theodore.edit import interview, panel
+    from theodore.edit import panel
     try:
-        cams = interview.find_clips(h, cameras, camera_bin)
-        lav_clips = interview.find_clips(h, lavs, lav_bin) if (lavs or lav_bin) else []
-    except interview.InterviewError as exc:
-        raise ToolError(str(exc))
-    paths = lambda clips: [c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")]
-    try:
-        plan = panel.build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
-        made = panel.import_to_resolve(h, plan, name)
+        made = panel.multicam_from_bins(h, camera_bin=camera_bin, cameras=cameras, lav_bin=lav_bin, lavs=lavs,
+                                        people=people, camera_for=camera_for, wide=wide, name=name)
     except panel.PanelError as exc:
         raise ToolError(str(exc))
-    return {**made, **panel.summary(plan),
+    return {**made,
             "note": "A real multicam clip: switch any cut's angle in Resolve's multicam viewer. Lavs are on "
                     "their own audio tracks; camera scratch audio is off."}
+
+
+def _package_shoot(ctx, h, client="Client", brand=None, brief="", camera_bin=None, cameras=None, lav_bin=None,
+                   lavs=None, people=None, camera_for=None, wide=None, source_timeline=None, episode=True,
+                   highlight_seconds=120, spot_seconds=30, vertical_clips=3, vertical_seconds=45, captions=True,
+                   subjects=None):
+    from theodore.edit import package, panel
+    try:
+        return package.package_shoot(
+            ctx.handles, client=client, brand=brand, brief=brief, camera_bin=camera_bin, cameras=cameras,
+            lav_bin=lav_bin, lavs=lavs, people=people, camera_for=camera_for, wide=wide,
+            source_timeline=source_timeline, episode=bool(episode), highlight_seconds=float(highlight_seconds or 0),
+            spot_seconds=float(spot_seconds or 0), vertical_clips=int(vertical_clips or 0),
+            vertical_seconds=float(vertical_seconds), captions=bool(captions), subjects=subjects)
+    except (ValueError, panel.PanelError) as exc:
+        raise ToolError(str(exc))
 
 
 def _speaker_follow(ctx, h, aspect="9:16", zoom=1.35, names=None, name=None):
@@ -768,7 +778,7 @@ def _organize_project(ctx, h, bins=True, tracks=True):
 #: Builders whose result should come out with its tracks named.
 _LABEL_AFTER = {"cut_like_reference", "build_story_cut", "clean_up_speech", "place_broll", "add_graphic", "add_transitions",
                 "add_captions", "make_social_version", "build_multicam", "speaker_follow", "match_look",
-                "move_clips", "append_clips"}
+                "move_clips", "append_clips", "package_shoot"}
 
 
 def _add_captions(ctx, h, style="social"):
@@ -1073,6 +1083,20 @@ TOOLS = [
                "lavs": {"type": "array", "items": _S}, "people": {"type": "array", "items": _S},
                "camera_for": {"type": "object"}, "wide": _S, "name": _S}),
          _build_multicam, SAFE_WRITE, needs_timeline=False),
+    Tool("package_shoot", "THE multicam money job in one call: a shoot in, every deliverable out. Syncs and "
+         "angle-cuts the cameras/lavs (or starts from source_timeline), then builds, each as its own named "
+         "timeline: the full Episode (clean), a Highlight (highlight_seconds), a commercial Spot "
+         "(spot_seconds, hook + CTA) and `vertical_clips` different 9:16 clips (vertical_seconds, captioned, "
+         "no line reused). Pass brand=<client> (learn_brand first) and a brief. Set a length to 0 to skip a "
+         "product. A product that fails is reported; the rest are still built. Afterwards LOOK at frames "
+         "from each, then tell the editor what's where and what needs them.",
+         _obj({"client": _S, "brand": _S, "brief": _S, "camera_bin": _S, "cameras": {"type": "array", "items": _S},
+               "lav_bin": _S, "lavs": {"type": "array", "items": _S}, "people": {"type": "array", "items": _S},
+               "camera_for": {"type": "object"}, "wide": _S, "source_timeline": _S, "episode": {"type": "boolean"},
+               "highlight_seconds": {"type": "number"}, "spot_seconds": {"type": "number"},
+               "vertical_clips": {"type": "integer"}, "vertical_seconds": {"type": "number"},
+               "captions": {"type": "boolean"}, "subjects": {"type": "object", "additionalProperties": _S}}),
+         _package_shoot, SAFE_WRITE, needs_timeline=False),
     Tool("speaker_follow", "One wide shot with several people -> a vertical (9:16) or other-shape cut "
          "that punches in on whoever is talking, line by line. Works on any camera Resolve reads (RED, "
          "ARRIRAW, BRAW, ProRes): Resolve renders a small analysis copy; Claude finds the faces; Resolve's "
