@@ -222,15 +222,22 @@ def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, 
                             "sentences": _sentences_from_words(res["words"], f"C{n}")})
     if not sources:
         raise InterviewError("No speech found in the sources.")
+    if use_timeline:
+        # A multicam timeline Theodore built remembers who talks when: label every line with its speaker.
+        from theodore.edit import panel
+        speech = panel.load_speakers(h.timeline.GetName())
+        if speech:
+            for sent in sources[0]["sentences"]:
+                sent["speaker"] = panel.speaker_at(speech, sent["start"], sent["end"])
     by_id = {s["id"]: (src, i) for src in sources for i, s in enumerate(src["sentences"])}
 
     listing = []
     for src in sources:
         listing.append(f"## Source {src['prefix']}: {src['label']} (speaker: {src['subject']})")
-        listing += [f"{s['id']} [{s['start']:.1f}s, {s['end'] - s['start']:.1f}s] {s['text']}"
-                    for s in src["sentences"]]
+        listing += [f"{s['id']} [{s['start']:.1f}s, {s['end'] - s['start']:.1f}s] "
+                    f"{s['speaker'] + ': ' if s.get('speaker') else ''}{s['text']}" for s in src["sentences"]]
     total_words = sum(len(s["text"].split()) for src in sources for s in src["sentences"])
-    people = list(dict.fromkeys(src["subject"] for src in sources))
+    people = list(dict.fromkeys(s.get("speaker") or src["subject"] for src in sources for s in src["sentences"]))
     fps = sources[0]["fps"]
     say(f"Claude is building the story from {len(by_id)} sentences"
         + (f" across {len(people)} subjects" if len(people) > 1 else ""))
@@ -256,7 +263,7 @@ def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, 
             a, b = _select_range(sents[i], int(sel.get("trim_start_words") or 0),
                                  int(sel.get("trim_end_words") or 0), prev_end, next_start)
             picked.append({"src": src, "a": a, "b": b, "section": sel.get("section", ""),
-                           "subject": src["subject"], "text": sents[i]["text"], "why": sel.get("why", "")})
+                           "subject": sents[i].get("speaker") or src["subject"], "text": sents[i]["text"], "why": sel.get("why", "")})
         return picked, gone
 
     plan = call_json(client, pass_name="interview-story", model=EDITOR_MODEL, system=SYSTEM, user=ask,

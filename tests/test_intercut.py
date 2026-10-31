@@ -83,3 +83,38 @@ def test_build_story_re_weaves_a_lopsided_first_plan(monkeypatch):
     assert out["intercut"]["re_woven"] is True and out["intercut"]["problems_left"] == []
     assert out["intercut"]["speaker_changes"] == 3
     assert [s["subject"] for s in out["story"]] == ["Maria", "Cole", "Maria", "Cole"]
+
+
+def test_story_on_a_multicam_timeline_knows_who_says_each_line(monkeypatch, tmp_path):
+    from theodore import config
+    from theodore.edit import panel
+    from theodore.resolve import timeline_ops, transcribe
+    monkeypatch.setattr(config, "DATA_ROOT", tmp_path)
+    plan = panel.PanelPlan([], [], 24, 30.0, 0.0, cuts=[(0.0, 30.0, "wide", "x")],
+                           speech={"Ana": [(0.0, 2.0)], "Ben": [(2.5, 5.0)]})
+    panel.save_speakers(plan, "Episode")
+
+    class TL:
+        def GetName(self): return "Episode"
+        def GetStartFrame(self): return 86400
+
+    class H:
+        timeline = TL()
+
+    words = _words("One. Two.", 0) + _words("Three. Four.", 60)
+    monkeypatch.setattr(transcribe, "transcribe_timeline", lambda h, word_level=True: {"fps": 24.0, "words": words})
+    monkeypatch.setattr(transcribe, "sentences", lambda ws: [
+        {"text": w["word"], "start": w["start"], "end": w["end"]} for w in ws])
+    monkeypatch.setattr(timeline_ops, "assemble_timeline_ranges",
+                        lambda h, ranges, title, labels=None: {"timeline": title, "duration_frames": 100})
+    seen = {}
+
+    def fake_call_json(client, *, user, **kw):
+        seen["user"] = user
+        return {"title": "T", "selects": [{"id": "T.1", "section": "Hook"}, {"id": "T.4", "section": "Button"}]}
+
+    monkeypatch.setattr(interview, "call_json", fake_call_json)
+    monkeypatch.setattr(interview, "make_client", lambda: object())
+    out = interview.build_story(H(), use_timeline=True, target_seconds=5)
+    assert "Ana: One." in seen["user"] and "Ben: Three." in seen["user"]
+    assert [s["subject"] for s in out["story"]][0] == "Ana"

@@ -20,7 +20,9 @@ timecode on an indie shoot, so everything is lined up from the sound itself:
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -36,6 +38,9 @@ SR = 8000
 HOP = 0.05  # seconds per activity frame
 MIN_SHOT = 1.5
 LONG_ANSWER = 12.0
+LEAD = 0.35            # a cut to a new speaker lands this early: the eye finds them as the voice arrives
+REACTION_AFTER = 7.0   # a single angle held this long gets a reaction shot of someone listening
+REACTION_LEN = 2.0
 
 
 class PanelError(RuntimeError):
@@ -266,11 +271,33 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
                 segs[lo:hi + 1] = [[segs[lo][0], segs[hi][1], keep[2], keep[3]]]
                 changed = True
                 break
-    # Long answers: a 2.5 s wide break in the middle, at the quietest moment.
+    # Cut a little BEFORE the new speaker's first word (the sound of the lav is separate, so only the
+    # picture moves) -- never so far that the shot we leave drops under MIN_SHOT.
+    lead = int(round(LEAD / HOP))
+    for i in range(1, len(segs)):
+        if segs[i][2] != wide and segs[i][2] != segs[i - 1][2] and "talking" in segs[i][3]:
+            room = (segs[i - 1][1] - segs[i - 1][0]) - int(round(MIN_SHOT / HOP))
+            shift = max(0, min(lead, room))
+            segs[i][0] -= shift
+            segs[i - 1][1] -= shift
+    listeners = {c.person: c.name for c in cameras if c.person and c.role == "close"}
+    reacted = 0
+    # Long answers: cut away to someone listening (a reaction), else a 2.5 s wide break in the middle.
     out = []
     for a, b, cam, reason in segs:
         dur = (b - a) * HOP
-        if cam != wide and dur > LONG_ANSWER:
+        speaker = reason.replace(" talking", "") if reason.endswith(" talking") else None
+        others = [n for p, n in listeners.items() if p != speaker and n != cam]
+        if speaker and others and dur > REACTION_AFTER:
+            cut_to = others[reacted % len(others)]
+            who = next(p for p, n in listeners.items() if n == cut_to)
+            reacted += 1
+            mid = (a + b) // 2
+            half = int(REACTION_LEN / HOP) // 2
+            out += [(a * HOP, (mid - half) * HOP, cam, reason),
+                    ((mid - half) * HOP, (mid + half) * HOP, cut_to, f"reaction: {who} listening"),
+                    ((mid + half) * HOP, b * HOP, cam, reason)]
+        elif cam != wide and dur > LONG_ANSWER:
             mid = (a + b) // 2
             br = int(2.5 / HOP)
             out += [(a * HOP, mid * HOP, cam, reason), (mid * HOP, (mid + br) * HOP, wide, "wide break in a long answer"),
@@ -409,7 +436,41 @@ def import_to_resolve(h, plan: PanelPlan, name: str) -> dict:
     if not tl:
         raise PanelError(f"Resolve would not import the multicam FCPXML ({tmp}).")
     h.project.SetCurrentTimeline(tl)
-    return {"timeline": tl.GetName(), "fcpxml": str(tmp)}
+    saved = save_speakers(plan, tl.GetName())
+    return {"timeline": tl.GetName(), "fcpxml": str(tmp), "speakers_saved": str(saved) if saved else None}
+
+
+def save_speakers(plan: PanelPlan, timeline_name: str) -> Optional[Path]:
+    """Who talks when, in seconds from the start of the cut timeline, kept so the story engine can tell
+    which person says each line. Nothing to save without lavs."""
+    if not plan.speech or not plan.cuts:
+        return None
+    from theodore import config
+    t0 = plan.cuts[0][0]
+    out = Path(config.DATA_ROOT) / "multicam" / (re.sub(r"[^\w. -]+", "_", timeline_name) + ".json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"timeline": timeline_name, "speech": {
+        p: [[round(a - t0, 3), round(b - t0, 3)] for a, b in segs] for p, segs in plan.speech.items()}}))
+    return out
+
+
+def load_speakers(timeline_name: str) -> Optional[dict]:
+    from theodore import config
+    f = Path(config.DATA_ROOT) / "multicam" / (re.sub(r"[^\w. -]+", "_", timeline_name) + ".json")
+    try:
+        return json.loads(f.read_text())["speech"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def speaker_at(speech: dict, start: float, end: float) -> Optional[str]:
+    """The person who talks for most of [start, end) seconds, or None if nobody clearly does."""
+    best, best_len = None, 0.0
+    for person, segs in speech.items():
+        total = sum(max(0.0, min(end, b) - max(start, a)) for a, b in segs)
+        if total > best_len:
+            best, best_len = person, total
+    return best if best_len >= 0.4 * (end - start) else None
 
 
 def summary(plan: PanelPlan) -> dict:

@@ -616,14 +616,47 @@ def _resolve_api_docs(ctx, h, query=None, section=None):
 # ---------------------------------------------------------------------------
 
 def _build_story_cut(ctx, h, target_seconds=60, brief="", clips=None, bin=None, use_timeline=False,
-                     name=None, reference=None, subjects=None):
+                     name=None, reference=None, subjects=None, brand=None):
     from theodore.edit import interview
+    brief = _brand_brief(brief, brand)
     try:
         sources = None if use_timeline else interview.find_clips(h, clips, bin)
         return interview.build_story(h, clips=sources, use_timeline=bool(use_timeline), brief=brief,
                                      target_seconds=float(target_seconds), name=name, reference=reference,
                                      subjects=subjects)
     except (FileNotFoundError, interview.InterviewError) as exc:
+        raise ToolError(str(exc))
+
+
+def _brand_brief(brief, brand):
+    from theodore import brand as brand_mod
+    text = brand_mod.prompt_text(brand)
+    if brand and not text:
+        raise ToolError(f"No saved brand for {brand!r}. Use learn_brand or set_brand_profile first.")
+    return (brief + "\n\n" if brief else "") + text if text else brief
+
+
+def _set_brand_profile(ctx, h, client, **fields):
+    from theodore import brand
+    try:
+        return {"client": client, "profile": brand.update(client, **fields)}
+    except ValueError as exc:
+        raise ToolError(str(exc))
+
+
+def _get_brand_profile(ctx, h, client):
+    from theodore import brand
+    profile = brand.load(client)
+    if not profile:
+        raise ToolError(f"No saved brand for {client!r}.")
+    return profile
+
+
+def _learn_brand(ctx, h, client, paths=None, brief=""):
+    from theodore import brand
+    try:
+        return brand.learn(client, [os.path.expanduser(p) for p in paths or []], brief=brief)
+    except ValueError as exc:
         raise ToolError(str(exc))
 
 
@@ -772,8 +805,9 @@ def _note_what_i_love(ctx, h, name, words):
 
 def _cut_like_reference(ctx, h, reference, target_seconds=60, brief="", clips=None, bin=None,
                         use_timeline=False, broll_bin=None, broll_clips=None, story=True, clean_up=True,
-                        transitions=True, name=None, subjects=None):
+                        transitions=True, name=None, subjects=None, brand=None):
     from theodore.edit import pipeline
+    brief = _brand_brief(brief, brand)
     try:
         return pipeline.cut_like_reference(
             ctx.handles, reference, target_seconds=float(target_seconds), brief=brief, clips=clips, bin=bin,
@@ -954,8 +988,23 @@ TOOLS = [
          "Run it again with other targets for :15/:30/:60 versions.",
          _obj({"target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
                "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"}, "name": _S,
-               "reference": _S, "subjects": {"type": "object", "additionalProperties": _S}}),
+               "reference": _S, "subjects": {"type": "object", "additionalProperties": _S}, "brand": _S}),
          _build_story_cut, SAFE_WRITE, needs_timeline=False),
+    Tool("learn_brand", "Learn a client's brand before cutting: read the brief the editor gave and/or a "
+         "folder of material (brand guide, website copy, scripts, transcripts) and save a profile "
+         "(audience, tone, goal, must-say lines, things to avoid, visual style, CTA). Returns what is "
+         "STILL MISSING as questions to ask, and any videos in the folder to study with study_reference. "
+         "Afterwards pass brand=<client> to build_story_cut / cut_like_reference.",
+         _obj({"client": _S, "paths": {"type": "array", "items": _S}, "brief": _S}, ["client"]),
+         _learn_brand, SAFE_WRITE, needs_timeline=False),
+    Tool("set_brand_profile", "Save or correct fields of a client's brand profile as the editor tells "
+         "them (audience, tone, goal, must_say[], avoid[], visual_style, calls_to_action[], notes).",
+         _obj({"client": _S, "audience": _S, "tone": _S, "goal": _S, "must_say": {"type": "array", "items": _S},
+               "avoid": {"type": "array", "items": _S}, "visual_style": _S,
+               "calls_to_action": {"type": "array", "items": _S}, "notes": _S}, ["client"]),
+         _set_brand_profile, SAFE_WRITE, needs_timeline=False),
+    Tool("get_brand_profile", "Read a client's saved brand profile.", _obj({"client": _S}, ["client"]),
+         _get_brand_profile, READ, needs_timeline=False),
     Tool("clean_up_speech", "Take ums/uhs, stumbles ('I, I') and dead air out of the open timeline "
          "(long pauses shortened to keep_pause_seconds, not removed) on a NEW duplicate, every track "
          "cut together. preview=true lists the cuts without changing anything.",
@@ -1083,7 +1132,7 @@ TOOLS = [
                "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"},
                "broll_bin": _S, "broll_clips": {"type": "array", "items": _S}, "story": {"type": "boolean"},
                "clean_up": {"type": "boolean"}, "transitions": {"type": "boolean"}, "name": _S,
-               "subjects": {"type": "object", "additionalProperties": _S}}, ["reference"]),
+               "subjects": {"type": "object", "additionalProperties": _S}, "brand": _S}, ["reference"]),
          _cut_like_reference, SAFE_WRITE, needs_timeline=False),
     Tool("compare_to_reference", "Measure the OPEN timeline the way the reference was studied -- shot "
          "length, cuts/min, B-roll share, cutaway length, first cutaway, longest hold on the face -- and "

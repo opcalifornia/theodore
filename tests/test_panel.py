@@ -26,9 +26,49 @@ def test_cut_rules_speaker_wide_and_min_shot():
             panel.Source("camB", "", "camera", {}, person="B", role="close")]
     cuts = panel.plan_cut(cams, {"A": a, "B": b}, 30.0)
     assert cuts[0][2] == "wide" and cuts[-1][2] == "wide"
-    assert any(c[2] == "camA" and c[0] <= 5 and c[1] >= 13 for c in cuts)
+    a_time = sum(c[1] - c[0] for c in cuts if c[2] == "camA" and c[0] < 14)
+    assert a_time >= 7 and any(c[2] == "camA" and c[0] <= 5 for c in cuts)
     assert any(c[2] == "camB" and c[0] <= 19 for c in cuts)
     assert all(c[1] - c[0] >= panel.MIN_SHOT - 1e-9 for c in cuts)
+
+
+def _two_person_cams():
+    return [panel.Source("wide", "", "camera", {}, role="wide"),
+            panel.Source("camA", "", "camera", {}, person="A", role="close"),
+            panel.Source("camB", "", "camera", {}, person="B", role="close")]
+
+
+def test_cut_to_the_new_speaker_lands_just_before_they_speak():
+    frames = int(30 / panel.HOP)
+    a = np.zeros(frames, bool); b = np.zeros(frames, bool)
+    a[int(4 / panel.HOP):int(10 / panel.HOP)] = True
+    b[int(12 / panel.HOP):int(20 / panel.HOP)] = True
+    cuts = panel.plan_cut(_two_person_cams(), {"A": a, "B": b}, 30.0)
+    start_b = next(c[0] for c in cuts if c[2] == "camB")
+    assert 12 - panel.LEAD - 1e-6 <= start_b < 12      # picture arrives before the voice
+
+
+def test_a_long_answer_gets_a_reaction_shot_of_the_listener():
+    frames = int(40 / panel.HOP)
+    a = np.zeros(frames, bool)
+    a[int(5 / panel.HOP):int(20 / panel.HOP)] = True   # A talks 15 s straight; B just listens
+    b = np.zeros(frames, bool)
+    cuts = panel.plan_cut(_two_person_cams(), {"A": a, "B": b}, 40.0)
+    reactions = [c for c in cuts if c[2] == "camB"]
+    assert reactions and "listening" in reactions[0][3]
+    assert abs((reactions[0][1] - reactions[0][0]) - panel.REACTION_LEN) < 0.2
+
+
+def test_speaker_map_attributes_a_line_to_who_talks_most(tmp_path, monkeypatch):
+    from theodore import config
+    monkeypatch.setattr(config, "DATA_ROOT", tmp_path)
+    plan = panel.PanelPlan([], [], 24, 30.0, 100.0, cuts=[(102.0, 130.0, "wide", "x")],
+                           speech={"A": [(102.0, 110.0)], "B": [(112.0, 125.0)]})
+    panel.save_speakers(plan, "Episode 1")
+    speech = panel.load_speakers("Episode 1")
+    assert panel.speaker_at(speech, 1.0, 6.0) == "A" and panel.speaker_at(speech, 11.0, 20.0) == "B"
+    assert panel.speaker_at(speech, 8.5, 9.5) is None      # silence between them
+    assert panel.load_speakers("never built") is None
 
 
 def test_speaker_follow_framing_centres_the_face_and_never_shows_an_edge():
