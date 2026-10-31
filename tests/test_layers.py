@@ -84,3 +84,27 @@ def test_broll_style_comes_from_the_references_measurements(tmp_path, monkeypatc
     import pytest
     with pytest.raises(RuntimeError):
         broll.style_from_reference("nike-ad")
+
+
+def test_story_style_scales_the_references_beats_and_pace(tmp_path, monkeypatch):
+    import json
+    from theodore import config
+    from theodore.edit import interview
+    monkeypatch.setattr(config, "DATA_ROOT", tmp_path)
+    d = tmp_path / "references" / "doc"
+    d.mkdir(parents=True)
+    (d / "blueprint.json").write_text(json.dumps({
+        "story_arc": [{"beat": "hook", "start": 0, "end": 10, "what_is_said": "the bold claim"},
+                      {"beat": "payoff", "start": 10, "end": 100, "what_is_said": "the proof"}],
+        "story_rules": ["Never open on a question"],
+        "editor_love": {"traits": [{"trait": "cold open", "weight": 5, "their_words": "starts mid-sentence",
+                                    "evidence": "0:00", "replicate": [{"tool": "build_story_cut", "how": "open mid-thought"}]}]}}))
+    (d / "analysis.json").write_text(json.dumps({"media": {"duration": 100.0},
+        "speech": {"words_per_minute": 150, "speech_ratio": 0.6},
+        "pacing": {"average_shot_length": 4.2, "cuts_per_minute": 14}}))
+    st = interview.style_from_reference("doc", 30)
+    assert "hook: ~3s" in st["rules"] and "payoff: ~27s" in st["rules"]
+    assert abs(st["words_per_second"] - 150 / 60 * 0.65) < 1e-6
+    assert "4.2s" in st["rules"] and "Never open on a question" in st["rules"] and "open mid-thought" in st["rules"]
+    with __import__("pytest").raises(FileNotFoundError):
+        interview.style_from_reference("nope", 30)

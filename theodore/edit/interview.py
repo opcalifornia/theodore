@@ -90,10 +90,51 @@ def _select_range(sent: dict, trim_start: int, trim_end: int, prev_end: Optional
     return max(0, int(a)), int(max(b, a + 1))
 
 
+def style_from_reference(name: str, target_seconds: float) -> dict:
+    """The reference's story shape scaled to `target_seconds`: section budgets, hook, pace, rules,
+    and whatever the editor said they love about it."""
+    from theodore.study import love, reference
+    ref = reference.load_reference(name)
+    bp, an = ref["blueprint"], ref["analysis"]
+    dur = float((an.get("media") or {}).get("duration") or 0)
+    lines = [f"Shape this story like the reference '{name}' (its measured structure, scaled to {target_seconds:.0f}s):"]
+    arc = bp.get("story_arc") or bp.get("structure") or []
+    for b in arc:
+        try:
+            a, z = float(b["start"]), float(b["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if dur:
+            what = b.get("beat") or b.get("section")
+            said = b.get("what_is_said") or b.get("purpose") or ""
+            lines.append(f"- {what}: ~{(z - a) / dur * target_seconds:.0f}s ({a / dur * 100:.0f}-{z / dur * 100:.0f}% "
+                         f"of the runtime). {said}")
+    sp = an.get("speech") or {}
+    wps = None
+    if sp.get("words_per_minute") and (sp.get("speech_ratio") or 0) >= 0.2:
+        wps = sp["words_per_minute"] / 60 * min(1.0, sp["speech_ratio"] + 0.05)
+        lines.append(f"- It speaks {sp['words_per_minute']:.0f} words/min while talking and is "
+                     f"{sp['speech_ratio'] * 100:.0f}% speech: aim for about {wps * target_seconds:.0f} spoken words.")
+    pace = an.get("pacing") or {}
+    if pace.get("average_shot_length"):
+        lines.append(f"- Average shot length {pace['average_shot_length']}s, {pace.get('cuts_per_minute')} cuts/min -- "
+                     "keep selects about that long where the content allows.")
+    lines += [f"- {r}" for r in (bp.get("story_rules") or [])[:6]]
+    lines += [f"- {r}" for r in (bp.get("pacing_rules") or [])[:4]]
+    loved = love.rules_text(bp, ("build_story_cut", "clean_up_speech", "other"))
+    if loved:
+        lines.append("The editor told me what they love about this reference -- lead with it:\n" + loved)
+    return {"rules": "\n".join(lines), "words_per_second": wps, "reference_seconds": dur or None}
+
+
 def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, brief: str = "",
                 target_seconds: float = 60.0, name: Optional[str] = None, client=None,
-                progress=None) -> dict:
+                progress=None, reference: Optional[str] = None) -> dict:
     from theodore.resolve import timeline_ops, transcribe
+
+    style = style_from_reference(reference, float(target_seconds)) if reference else None
+    if style:
+        brief = (brief + "\n\n" if brief else "") + style["rules"]
 
     say = progress or (lambda m: None)
     sources = []   # {"prefix", "label", "sentences", "clip" | None}
@@ -127,7 +168,7 @@ def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, 
     plan = call_json(
         client, pass_name="interview-story", model=EDITOR_MODEL, system=SYSTEM,
         user=(f"Brief: {brief or '(none given -- find the strongest story)'}\n"
-              f"Target length: {target_seconds:.0f} seconds (~{int(target_seconds * 2.5)} words of the "
+              f"Target length: {target_seconds:.0f} seconds (~{int(target_seconds * ((style or {}).get('words_per_second') or 2.5))} words of the "
               f"{total_words} available).\n\n" + "\n".join(listing) + "\n\n" + INSTRUCTIONS),
         max_tokens=6000, cost_tracker=CostTracker())
 
@@ -170,7 +211,7 @@ def build_story(h, *, clips: Optional[list] = None, use_timeline: bool = False, 
         "story": [{"section": s["section"], "line": s["text"], "why": s["why"]} for s in selects],
         "alternate_hooks": [by_id[i][0]["sentences"][by_id[i][1]]["text"] for i in plan.get("alternate_hooks", [])
                             if i in by_id],
-        "editor_notes": plan.get("editor_notes"), "unmatched_ids": missing,
+        "editor_notes": plan.get("editor_notes"), "unmatched_ids": missing, "matched_reference": reference,
     }
 
 

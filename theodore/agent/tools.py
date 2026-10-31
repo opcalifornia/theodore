@@ -616,13 +616,13 @@ def _resolve_api_docs(ctx, h, query=None, section=None):
 # ---------------------------------------------------------------------------
 
 def _build_story_cut(ctx, h, target_seconds=60, brief="", clips=None, bin=None, use_timeline=False,
-                     name=None):
+                     name=None, reference=None):
     from theodore.edit import interview
     try:
         sources = None if use_timeline else interview.find_clips(h, clips, bin)
         return interview.build_story(h, clips=sources, use_timeline=bool(use_timeline), brief=brief,
-                                     target_seconds=float(target_seconds), name=name)
-    except interview.InterviewError as exc:
+                                     target_seconds=float(target_seconds), name=name, reference=reference)
+    except (FileNotFoundError, interview.InterviewError) as exc:
         raise ToolError(str(exc))
 
 
@@ -922,9 +922,12 @@ TOOLS = [
          "source, Claude (as story editor) picks hook -> arc -> button (-> CTA) to target_seconds, and a "
          "NEW timeline is assembled in story order with section markers. Sources: a bin, clip names, or "
          "use_timeline=true for the open timeline (multi-track, kept in sync). Give a brief: purpose, "
-         "audience, tone, must-say lines. Run it again with other targets for :15/:30/:60 versions.",
+         "audience, tone, must-say lines. Pass `reference` (a studied video's name) to shape the story like "
+         "it: its section budgets scaled to target_seconds, its speaking pace, shot length, rules, and "
+         "what the editor loved about it. Run it again with other targets for :15/:30/:60 versions.",
          _obj({"target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
-               "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"}, "name": _S}),
+               "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"}, "name": _S,
+               "reference": _S}),
          _build_story_cut, SAFE_WRITE, needs_timeline=False),
     Tool("clean_up_speech", "Take ums/uhs, stumbles ('I, I') and dead air out of the open timeline "
          "(long pauses shortened to keep_pause_seconds, not removed) on a NEW duplicate, every track "
