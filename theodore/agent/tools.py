@@ -757,6 +757,20 @@ def _package_shoot(ctx, h, client="Client", brand=None, brief="", camera_bin=Non
         raise ToolError(str(exc))
 
 
+def _phone_videos(ctx, h, action="list", path=None):
+    from theodore import share
+    if action == "send":
+        if not path:
+            raise ToolError("Give the video's path to send.")
+        return share.copy_for_phone(os.path.expanduser(path))
+    return {"on_phone": share.list_shared()}
+
+
+def _delete_phone_video(ctx, h, name):
+    from theodore import share
+    return share.delete_shared(name)
+
+
 def _speaker_follow(ctx, h, aspect="9:16", zoom=1.35, names=None, name=None):
     from theodore.edit import reframe
     try:
@@ -1097,6 +1111,14 @@ TOOLS = [
                "vertical_clips": {"type": "integer"}, "vertical_seconds": {"type": "number"},
                "captions": {"type": "boolean"}, "subjects": {"type": "object", "additionalProperties": _S}}),
          _package_shoot, SAFE_WRITE, needs_timeline=False),
+    Tool("phone_videos", "The editor's phone folder (iCloud Drive > Theodore, shows in the Files app). "
+         "action='list' shows what's there; 'send' copies a review-size video (path) into it. Multicam "
+         "previews are sent here automatically.",
+         _obj({"action": {"type": "string", "enum": ["list", "send"]}, "path": _S}),
+         _phone_videos, SAFE_WRITE, needs_timeline=False),
+    Tool("delete_phone_video", "Delete one video from the editor's phone folder by file name. It disappears "
+         "from every device (iCloud keeps it ~30 days). Only when the editor asks.",
+         _obj({"name": _S}, ["name"]), _delete_phone_video, DESTRUCTIVE, needs_timeline=False),
     Tool("speaker_follow", "One wide shot with several people -> a vertical (9:16) or other-shape cut "
          "that punches in on whoever is talking, line by line. Works on any camera Resolve reads (RED, "
          "ARRIRAW, BRAW, ProRes): Resolve renders a small analysis copy; Claude finds the faces; Resolve's "

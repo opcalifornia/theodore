@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -536,8 +537,52 @@ def summary(plan: PanelPlan) -> dict:
     }
 
 
+def render_preview(plan: PanelPlan, out_path, *, height: int = 576) -> Path:
+    """A watchable video of the plan's cuts straight from the source files (no Resolve): the chosen angle
+    for every shot, the lavs mixed underneath. Low-res on purpose: it is for reviewing."""
+    work = Path(tempfile.mkdtemp(prefix="theodore-preview-"))
+    paths = {c.name: c for c in plan.cameras}
+    t0, t1 = plan.cuts[0][0], plan.cuts[-1][1]
+    width = int(height * 16 / 9) // 2 * 2
+    lines = []
+    for i, (a, b, cam, _why) in enumerate(plan.cuts):
+        seg = work / f"{i:04d}.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{max(0.0, a - paths[cam].start):.3f}",
+                        "-t", f"{b - a:.3f}", "-i", paths[cam].path, "-an", "-vf",
+                        f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps=25",
+                        "-c:v", "libx264", "-crf", "26", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(seg)],
+                       check=True, timeout=600)
+        lines.append(f"file '{seg}'")
+    (work / "list.txt").write_text("\n".join(lines))
+    video = work / "video.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(work / "list.txt"),
+                    "-c", "copy", str(video)], check=True, timeout=600)
+    voices = plan.lavs or [c for c in plan.cameras if c.info["has_audio"]][:1]
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not voices:
+        shutil.copy(video, out)
+        return out
+    ins, chains = [], []
+    for n, v in enumerate(voices):
+        ins += ["-i", v.path]
+        lead = t0 - v.start            # >= 0: skip into the file; < 0: the mic started later, so delay it
+        chains.append(f"[{n}]atrim=start={max(lead, 0):.3f},asetpts=PTS-STARTPTS,"
+                      f"adelay={int(max(-lead, 0) * 1000)}:all=1[v{n}]")
+    mix = "".join(f"[v{n}]" for n in range(len(voices)))
+    chains.append(f"{mix}amix=inputs={len(voices)}:normalize=0,dynaudnorm,atrim=end={t1 - t0:.3f}[a]")
+    audio = work / "audio.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *ins, "-filter_complex", ";".join(chains), "-map", "[a]",
+                    "-ar", "44100", str(audio)], check=True, timeout=1800)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-i", str(audio), "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "96k", "-shortest", "-movflags", "+faststart", str(out)],
+                   check=True, timeout=600)
+    shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
 def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
-                       camera_for=None, wide=None, name="Panel Multicam") -> dict:
+                       camera_for=None, wide=None, name="Panel Multicam", preview: bool = True) -> dict:
     """Find the cameras and lavs in the media pool, sync, cut and import: the whole multicam build."""
     from theodore.edit import interview
     try:
@@ -547,4 +592,12 @@ def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=N
         raise PanelError(str(exc))
     paths = lambda clips: [c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")]
     plan = build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
-    return {**import_to_resolve(h, plan, name), **summary(plan)}
+    made = {**import_to_resolve(h, plan, name), **summary(plan)}
+    if preview:
+        from theodore import config, share
+        try:
+            video = render_preview(plan, Path(config.DATA_ROOT) / "previews" / f"{re.sub(r'[^A-Za-z0-9._-]+', '_', name)}.mp4")
+            made["preview"] = {"video": str(video), **share.copy_for_phone(video)}
+        except Exception as exc:  # noqa: BLE001  the timeline is built; the preview is a bonus
+            made["preview"] = {"video": None, "error": f"{type(exc).__name__}: {exc}"}
+    return made
