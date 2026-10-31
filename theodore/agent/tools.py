@@ -659,11 +659,13 @@ def _add_transitions(ctx, h, kind="dissolve", seconds=0.5, at_cuts=None, fade_in
         raise ToolError(str(exc))
 
 
-def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False, name=None, look_name=None):
+def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False, name=None, look_name=None,
+                camera_transform="auto"):
     from theodore.color import resolve_apply
     try:
         out = resolve_apply.match_look(h, reference, strength=float(strength), per_clip=bool(per_clip),
-                                       on_duplicate=not in_place, name=name, look_name=look_name)
+                                       on_duplicate=not in_place, name=name, look_name=look_name,
+                                       camera_transform=camera_transform)
     except (FileNotFoundError, RuntimeError) as exc:
         raise ToolError(str(exc))
     images = []
@@ -908,10 +910,13 @@ TOOLS = [
     Tool("match_look", "Grade the open timeline to match the look of a reference image (a still from any "
          "film, a photo, a grade the editor likes): each clip gets its own LUT computed from its own pixels "
          "-- tone curve (black lift, contrast, roll-off), split-toned colour by shadows/mids/highlights, "
-         "saturation -- so every shot lands on the same look. On a DUPLICATE unless in_place. strength "
+         "saturation -- so every shot lands on the same look. Camera-aware: each clip's camera/log (ARRI LogC3/"
+         "LogC4, RED Log3G10, Sony S-Log3, BMD Film) is read from metadata and converted with the maker's "
+         "transform first (camera_transform='none' if the editor already converts). On a DUPLICATE unless in_place. strength "
          "0.5 subtle .. 1 full. per_clip=false uses one shared LUT. Returns a reference|before|after image.",
          _obj({"reference": _S, "strength": {"type": "number"}, "per_clip": {"type": "boolean"},
-               "in_place": {"type": "boolean"}, "name": _S, "look_name": _S}, ["reference"]),
+               "in_place": {"type": "boolean"}, "name": _S, "look_name": _S,
+               "camera_transform": {"type": "string", "enum": ["auto", "none"]}}, ["reference"]),
          _match_look, SAFE_WRITE),
     Tool("build_multicam", "Multicam panel/interview, done end to end: syncs every camera and lav from "
          "their audio (no timecode needed), works out who is talking from the lavs, which camera is on whom "

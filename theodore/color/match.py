@@ -25,6 +25,12 @@ from typing import Optional
 
 import numpy as np
 
+#: Camera files (ARRI ProRes 4444 especially) are often tagged with "reserved"
+#: colour metadata that ffmpeg's converter refuses. Declare plain BT.709 YUV
+#: so the recorded values (log, if log) come through untouched -- the camera
+#: transform is applied later, deliberately.
+TAG = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+
 SAMPLE_W = 320
 LUT_SIZE = 33
 KR, KB = 0.2126, 0.0722  # Rec.709
@@ -37,7 +43,7 @@ def decode_image(path: str, width: int = SAMPLE_W, seek: Optional[float] = None)
     cmd = ["ffmpeg", "-v", "error"]
     if seek is not None:
         cmd += ["-ss", f"{max(seek, 0):.3f}"]
-    cmd += ["-i", path, "-frames:v", "1", "-vf", f"scale={width}:-2:flags=area,format=rgb24",
+    cmd += ["-i", path, "-map", "0:v:0", "-an", "-frames:v", "1", "-vf", f"{TAG},scale={width}:-2:flags=area,format=rgb24",
             "-f", "rawvideo", "-"]
     res = subprocess.run(cmd, capture_output=True, timeout=120)
     if res.returncode != 0 or not res.stdout:
@@ -171,12 +177,15 @@ class LookModel:
                 "reference_shadow_tint": tint(self.ref_means[0]), "reference_highlight_tint": tint(self.ref_means[2])}
 
 
-def write_cube(model: LookModel, path: Path, title: str = "Theodore look", size: int = LUT_SIZE) -> Path:
+def write_cube(model: LookModel, path: Path, title: str = "Theodore look", size: int = LUT_SIZE,
+               pre=None) -> Path:
+    """`pre`: the camera transform (recorded values -> display), baked in front
+    of the look so one LUT takes the clip from log straight to the grade."""
     g = np.linspace(0, 1, size)
     # .cube order: red changes fastest, then green, then blue.
     b, gg, r = np.meshgrid(g, g, g, indexing="ij")
     grid = np.stack([r, gg, b], axis=-1).reshape(-1, 3)
-    out = model.apply(grid)
+    out = model.apply(pre(grid) if pre else grid)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as fh:
         fh.write(f'TITLE "{title}"\nLUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n')

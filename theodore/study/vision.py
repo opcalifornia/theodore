@@ -15,6 +15,12 @@ from pathlib import Path
 
 from theodore.analyze.claude_client import CostTracker, call_json
 
+#: Camera files (ARRI ProRes 4444 especially) are often tagged with "reserved"
+#: colour metadata that ffmpeg's converter refuses. Declare plain BT.709 YUV
+#: so the recorded values (log, if log) come through untouched -- the camera
+#: transform is applied later, deliberately.
+TAG = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+
 STUDY_MODEL = os.environ.get("THEODORE_STUDY_MODEL", "claude-sonnet-5-5")
 FRAME_WIDTH = 640
 BATCH = 16
@@ -59,7 +65,7 @@ def extract_frames(video: Path, frame_indices: list[int], out_dir: Path) -> dict
                 old.unlink()
             subprocess.run(
                 ["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:v:0",
-                 "-vf", f"select='{expr}',scale={FRAME_WIDTH}:-2", "-fps_mode", "vfr", "-q:v", "4",
+                 "-vf", f"{TAG},select='{expr}',scale={FRAME_WIDTH}:-2", "-fps_mode", "vfr", "-q:v", "4",
                  str(tmp / "%06d.jpg")],
                 check=True, capture_output=True, timeout=3600,
             )

@@ -16,6 +16,12 @@ from typing import Optional
 
 import numpy as np
 
+#: Camera files (ARRI ProRes 4444 especially) are often tagged with "reserved"
+#: colour metadata that ffmpeg's converter refuses. Declare plain BT.709 YUV
+#: so the recorded values (log, if log) come through untouched -- the camera
+#: transform is applied later, deliberately.
+TAG = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+
 THUMB_W, THUMB_H = 32, 18
 DECODE_W, DECODE_H = 64, 36
 HIST_BINS = 16  # per channel
@@ -127,7 +133,7 @@ def active_area(path: Path, duration: float, width: int, height: int) -> Optiona
 
 
 def video_signals(path: Path, chunk_frames: int = 512, crop: Optional[dict] = None) -> VideoSignals:
-    vf = f"scale={DECODE_W}:{DECODE_H}:flags=area,format=rgb24"
+    vf = f"{TAG},scale={DECODE_W}:{DECODE_H}:flags=area,format=rgb24"
     if crop:
         vf = f"crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']}," + vf
     cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0",
