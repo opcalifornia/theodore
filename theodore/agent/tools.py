@@ -674,13 +674,15 @@ def _add_transitions(ctx, h, kind="dissolve", seconds=0.5, at_cuts=None, fade_in
 
 
 def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False, name=None, look_name=None,
-                camera_transform="auto"):
+                camera_transform="auto", refine=True, skin_protect=True, trims=None, reference_at_seconds=None):
     from theodore.color import resolve_apply
     try:
         out = resolve_apply.match_look(h, reference, strength=float(strength), per_clip=bool(per_clip),
                                        on_duplicate=not in_place, name=name, look_name=look_name,
-                                       camera_transform=camera_transform)
-    except (FileNotFoundError, RuntimeError) as exc:
+                                       camera_transform=camera_transform, refine=bool(refine),
+                                       skin_protect=bool(skin_protect), trims=trims,
+                                       reference_at_seconds=reference_at_seconds)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise ToolError(str(exc))
     images = []
     if out.get("preview_image"):
@@ -831,7 +833,7 @@ def _obj(props, required=()):
     return {"type": "object", "properties": props, "required": list(required)}
 
 
-_S, _I = {"type": "string"}, {"type": "integer"}
+_S, _I, _N = {"type": "string"}, {"type": "integer"}, {"type": "number"}
 _TRACK = {"type": "string", "enum": [VIDEO, AUDIO]}
 _RANGES = {"type": "array", "items": _obj(
     {"start_frame": _I, "end_frame": _I}, ["start_frame", "end_frame"])}
@@ -991,10 +993,22 @@ TOOLS = [
          "saturation -- so every shot lands on the same look. Camera-aware: each clip's camera/log (ARRI LogC3/"
          "LogC4, RED Log3G10, Sony S-Log3, BMD Film) is read from metadata and converted with the maker's "
          "transform first (camera_transform='none' if the editor already converts). On a DUPLICATE unless in_place. strength "
-         "0.5 subtle .. 1 full. per_clip=false uses one shared LUT. Returns a reference|before|after image.",
+         "0.5 subtle .. 1 full. per_clip=false uses one shared LUT. Returns a reference|before|after image. "
+         "The reference can be a still OR a film/video (several frames are sampled; reference_at_seconds "
+         "picks them). By default each clip's trims (exposure, contrast, saturation, warmth, tint) are "
+         "REFINED until its graded picture measures as close to the reference as possible (see `refined` "
+         "scores, `match_check`), and skin is held near the skin line (skin_protect). LOOK at the returned "
+         "image and read match_check.issues; if something is off, re-run with explicit `trims` "
+         "(e.g. {'warmth': -0.3, 'shadow_tint': [0.02, -0.01], 'saturation': -0.1}) -- explicit trims "
+         "replace the auto-refine.",
          _obj({"reference": _S, "strength": {"type": "number"}, "per_clip": {"type": "boolean"},
                "in_place": {"type": "boolean"}, "name": _S, "look_name": _S,
-               "camera_transform": {"type": "string", "enum": ["auto", "none"]}}, ["reference"]),
+               "camera_transform": {"type": "string", "enum": ["auto", "none"]},
+               "refine": {"type": "boolean"}, "skin_protect": {"type": "boolean"},
+               "trims": {"type": "object", "properties": {
+                   "exposure": _N, "contrast": _N, "saturation": _N, "warmth": _N, "tint": _N,
+                   "shadow_tint": {"type": "array", "items": _N}, "highlight_tint": {"type": "array", "items": _N}}},
+               "reference_at_seconds": {"type": "array", "items": _N}}, ["reference"]),
          _match_look, SAFE_WRITE),
     Tool("build_multicam", "Multicam panel/interview, done end to end: syncs every camera and lav from "
          "their audio (no timecode needed), works out who is talking from the lavs, which camera is on whom "

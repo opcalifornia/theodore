@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from theodore.color import cameras, match
+from theodore.color import cameras, match, verify
 
 LUT_ROOT = Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT")
 LUT_DIR = LUT_ROOT / "Theodore"
@@ -52,13 +52,15 @@ def _clip_pixels(h, mpi, path: str, a: float, b: float):
 
 def match_look(h, reference: str, *, strength: float = 0.85, per_clip: bool = True,
                on_duplicate: bool = True, name: Optional[str] = None, look_name: Optional[str] = None,
-               camera_transform: str = "auto") -> dict:
+               camera_transform: str = "auto", refine: bool = True, skin_protect: bool = True,
+               trims: Optional[dict] = None, reference_at_seconds: Optional[list] = None) -> dict:
     from theodore.resolve import graphics, timeline_ops
 
     ref_path = str(Path(reference).expanduser())
     if not Path(ref_path).exists():
         raise FileNotFoundError(f"No reference image at {ref_path}")
-    ref = match.decode_image(ref_path)
+    ref = match.load_reference(ref_path, reference_at_seconds)
+    explicit = match.Trims.from_dict(trims) if trims else None
     look = _slug(look_name or Path(ref_path).stem)
     tl = timeline_ops.duplicate_for_edit(h, name, f"look {look}") if on_duplicate else h.timeline
 
@@ -85,13 +87,23 @@ def match_look(h, reference: str, *, strength: float = 0.85, per_clip: bool = Tr
     pooled = None
     if not per_clip:
         import numpy as np
-        pooled = match.LookModel(np.concatenate(list(pixels.values())), ref, strength)
+        pooled = match.LookModel(np.concatenate(list(pixels.values())), ref, strength, explicit,
+                                 skin_protect)
 
     out_dir = LUT_DIR / look
     written = []
+    scores = []
     for n, (it, mpi, path, a, b, track, cam) in enumerate(shots):
-        model = pooled or match.LookModel(pixels[n], ref, strength)
-        cube = out_dir / f"{n + 1:03d}-{_slug(mpi.GetName())}-{match.cache_key(path, a, b, ref_path, strength, cam['key'])}.cube"
+        if pooled:
+            model = pooled
+        elif explicit is not None or not refine:
+            model = match.LookModel(pixels[n], ref, strength, explicit, skin_protect)   # the editor/agent steers
+        else:
+            model, info = verify.refine(pixels[n], ref, strength, skin_protect)        # close the gap to the reference
+            scores.append({"clip": mpi.GetName(), **info})
+        tkey = json.dumps(explicit.to_dict() if explicit else (model.trims.to_dict() if refine else {}), sort_keys=True)
+        cube = out_dir / (f"{n + 1:03d}-{_slug(mpi.GetName())}-"
+                          f"{match.cache_key(path, a, b, ref_path, strength, cam['key'], skin_protect, tkey)}.cube")
         match.write_cube(model, cube, title=f"Theodore {look}", pre=cameras.to_display(cam["key"]))
         written.append((it, mpi, path, a, track, cube, model, cam))
 
@@ -113,6 +125,13 @@ def match_look(h, reference: str, *, strength: float = 0.85, per_clip: bool = Tr
     except Exception:  # noqa: BLE001 -- the preview is a nicety
         pass
     summary = written[0][6].describe()
+    check = None
+    try:  # measure the first graded clip against the reference, as a colourist reads scopes
+        first = written[0]
+        graded = first[6].apply(cameras.to_display(first[7]["key"])(_clip_pixels(h, first[1], first[2], first[3], first[3] + 1)))
+        check = verify.report(graded, ref)
+    except Exception:  # noqa: BLE001
+        pass
     (out_dir / "look.json").write_text(json.dumps({"reference": ref_path, "strength": strength,
                                                    "per_clip": per_clip, "look": summary}, indent=2))
     return {"timeline": tl.GetName(), "look": look, "reference": ref_path, "clips_graded": len(applied),
@@ -120,4 +139,8 @@ def match_look(h, reference: str, *, strength: float = 0.85, per_clip: bool = Tr
             "cameras": sorted({w[7]["label"] for w in written}),
             "lenses": sorted({str(w[1].GetClipProperty("Lens Type") or "") for w in written} - {""}), "strength": strength, "first_clip_look": summary,
             "luts_in": str(out_dir), "preview_image": preview,
+            "match_check": check and {"score": check["score"], "issues": check["issues"]},
+            "refined": [{"clip": x["clip"], "score_before": x["score_before"], "score_after": x["score_after"],
+                         "trims": x["trims"]} for x in scores] or None,
+            "skin_protect": skin_protect,
             "note": "LUT on node 1 of each clip. Refine on the Color page; lower strength for subtler."}

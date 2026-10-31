@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -136,11 +137,67 @@ def _mkl(src_cov: np.ndarray, ref_cov: np.ndarray, lo: float = 0.45, hi: float =
     return vecs @ np.diag(np.clip(vals, lo, hi)) @ vecs.T
 
 
+SKIN_ANGLE = 123.0      # the vectorscope skin line, degrees (Cb on x, Cr on y)
+SKIN_SPREAD = 18.0      # how far the grade may move skin hue off that line
+
+
+@dataclass
+class Trims:
+    """The colourist's final nudges, applied after the matched look. All zero = none."""
+    exposure: float = 0.0      # added to luma (+0.05 ~ a bit brighter)
+    contrast: float = 0.0      # +0.2 = 20% steeper about middle grey
+    saturation: float = 0.0    # +0.2 = 20% more colour
+    warmth: float = 0.0        # +warm / -cool
+    tint: float = 0.0          # +magenta / -green
+    shadow_tint: tuple = (0.0, 0.0)      # (Cb, Cr) offset in the shadows
+    highlight_tint: tuple = (0.0, 0.0)   # (Cb, Cr) offset in the highlights
+
+    @classmethod
+    def from_dict(cls, d: Optional[dict]) -> "Trims":
+        d = dict(d or {})
+        known = {f for f in cls.__dataclass_fields__}
+        bad = set(d) - known
+        if bad:
+            raise ValueError(f"Unknown trims {sorted(bad)}; use {sorted(known)}.")
+        return cls(**{k: (tuple(v) if k.endswith("_tint") and isinstance(v, (list, tuple)) else v)
+                      for k, v in d.items()})
+
+    def is_zero(self) -> bool:
+        return all(v == 0 or v == (0.0, 0.0) for v in asdict(self).values())
+
+    def to_dict(self) -> dict:
+        return {k: (list(v) if isinstance(v, tuple) else v) for k, v in asdict(self).items()}
+
+
+def skin_weight(ycc: np.ndarray) -> np.ndarray:
+    """0..1 per pixel: how skin-like (hue near the skin line, enough colour, not near black/white)."""
+    cb, cr = ycc[..., 1], ycc[..., 2]
+    ang = np.degrees(np.arctan2(cr, cb)) % 360
+    d = np.abs((ang - SKIN_ANGLE + 180) % 360 - 180)
+    chroma = np.hypot(cb, cr)
+    sat = np.clip((chroma - 0.015) / 0.04, 0, 1)
+    lum = np.clip((ycc[..., 0] - 0.12) / 0.15, 0, 1) * np.clip((0.95 - ycc[..., 0]) / 0.15, 0, 1)
+    return np.exp(-(d / 28.0) ** 2) * sat * lum
+
+
+def _protect_skin(c_out: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Rotate the graded chroma of skin-like pixels back to within SKIN_SPREAD of the skin line."""
+    ang = np.degrees(np.arctan2(c_out[:, 1], c_out[:, 0])) % 360
+    off = (ang - SKIN_ANGLE + 180) % 360 - 180
+    target = SKIN_ANGLE + np.clip(off, -SKIN_SPREAD, SKIN_SPREAD)
+    rot = np.radians((target - ang) * w)
+    cos, sin = np.cos(rot), np.sin(rot)
+    return np.stack([c_out[:, 0] * cos - c_out[:, 1] * sin, c_out[:, 0] * sin + c_out[:, 1] * cos], axis=1)
+
+
 class LookModel:
     """Everything needed to map a source pixel onto the reference look."""
 
-    def __init__(self, src: np.ndarray, ref: np.ndarray, strength: float = 0.85):
+    def __init__(self, src: np.ndarray, ref: np.ndarray, strength: float = 0.85,
+                 trims: Optional[Trims] = None, skin_protect: bool = True):
         s, r = to_ycc(src.reshape(-1, 3)), to_ycc(ref.reshape(-1, 3))
+        self.trims = trims or Trims()
+        self.skin_protect = bool(skin_protect)
         self.strength = float(np.clip(strength, 0, 1))
         self.cx, self.cy = _tone_curve(s[:, 0], r[:, 0])
         s_mapped = s.copy()
@@ -157,9 +214,26 @@ class LookModel:
         y_new = np.interp(ycc[:, 0], self.cx, self.cy)
         c = ycc[:, 1:] - _band_weights(ycc[:, 0]) @ self.src_means
         c = c @ self.chroma.T + _band_weights(y_new) @ self.ref_means
+        if self.skin_protect:
+            c = _protect_skin(c, skin_weight(ycc))
         out = from_ycc(np.concatenate([y_new[:, None], c], axis=1))
         out = self.strength * out + (1 - self.strength) * rgb.reshape(-1, 3)
+        out = self._trim(np.clip(out, 0, 1))
         return np.clip(out, 0, 1).reshape(shape)
+
+    def _trim(self, rgb: np.ndarray) -> np.ndarray:
+        t = self.trims
+        if t.is_zero():
+            return rgb
+        ycc = to_ycc(rgb)
+        y = ycc[:, 0] + t.exposure
+        y = 0.5 + (y - 0.5) * (1 + t.contrast)
+        w = _band_weights(np.clip(y, 0, 1))
+        cb = ycc[:, 1] * (1 + t.saturation) - 0.05 * t.warmth - 0.05 * t.tint * 0
+        cr = ycc[:, 2] * (1 + t.saturation) + 0.05 * t.warmth + 0.05 * t.tint
+        cb = cb + w[:, 0] * t.shadow_tint[0] + w[:, 2] * t.highlight_tint[0]
+        cr = cr + w[:, 0] * t.shadow_tint[1] + w[:, 2] * t.highlight_tint[1]
+        return from_ycc(np.stack([y, cb, cr], axis=1))
 
     def describe(self) -> dict:
         mid = np.interp([0.1, 0.5, 0.9], self.cx, self.cy)
@@ -191,6 +265,22 @@ def write_cube(model: LookModel, path: Path, title: str = "Theodore look", size:
         fh.write(f'TITLE "{title}"\nLUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n')
         fh.writelines(f"{x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in out)
     return path
+
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".heic", ".exr", ".dpx"}
+
+
+def load_reference(path: str, at_seconds: Optional[list] = None, samples: int = 5) -> np.ndarray:
+    """A reference look as pixels. A still is read as is; a film or video contributes several
+    frames (at `at_seconds`, or spread across it) so one odd frame doesn't set the grade."""
+    if Path(path).suffix.lower() in IMAGE_EXTS:
+        return decode_image(path)
+    times = list(at_seconds or [])
+    if not times:
+        from theodore.study import signals
+        dur = signals.probe(Path(path)).duration or 0.0
+        times = [dur * (k + 0.5) / samples for k in range(samples)] if dur else [0.0]
+    return np.concatenate([decode_image(path, seek=float(t)).reshape(-1, 3) for t in times])
 
 
 def frames_for_clip(path: str, start_s: float, end_s: float, count: int = 5) -> np.ndarray:
