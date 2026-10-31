@@ -616,12 +616,13 @@ def _resolve_api_docs(ctx, h, query=None, section=None):
 # ---------------------------------------------------------------------------
 
 def _build_story_cut(ctx, h, target_seconds=60, brief="", clips=None, bin=None, use_timeline=False,
-                     name=None, reference=None):
+                     name=None, reference=None, subjects=None):
     from theodore.edit import interview
     try:
         sources = None if use_timeline else interview.find_clips(h, clips, bin)
         return interview.build_story(h, clips=sources, use_timeline=bool(use_timeline), brief=brief,
-                                     target_seconds=float(target_seconds), name=name, reference=reference)
+                                     target_seconds=float(target_seconds), name=name, reference=reference,
+                                     subjects=subjects)
     except (FileNotFoundError, interview.InterviewError) as exc:
         raise ToolError(str(exc))
 
@@ -771,13 +772,13 @@ def _note_what_i_love(ctx, h, name, words):
 
 def _cut_like_reference(ctx, h, reference, target_seconds=60, brief="", clips=None, bin=None,
                         use_timeline=False, broll_bin=None, broll_clips=None, story=True, clean_up=True,
-                        transitions=True, name=None):
+                        transitions=True, name=None, subjects=None):
     from theodore.edit import pipeline
     try:
         return pipeline.cut_like_reference(
             ctx.handles, reference, target_seconds=float(target_seconds), brief=brief, clips=clips, bin=bin,
             use_timeline=bool(use_timeline), broll_bin=broll_bin, broll_clips=broll_clips, story=bool(story),
-            clean_up=bool(clean_up), transitions=bool(transitions), name=name)
+            clean_up=bool(clean_up), transitions=bool(transitions), name=name, subjects=subjects)
     except FileNotFoundError as exc:
         raise ToolError(str(exc))
 
@@ -947,10 +948,13 @@ TOOLS = [
          "use_timeline=true for the open timeline (multi-track, kept in sync). Give a brief: purpose, "
          "audience, tone, must-say lines. Pass `reference` (a studied video's name) to shape the story like "
          "it: its section budgets scaled to target_seconds, its speaking pace, shot length, rules, and "
-         "what the editor loved about it. Run it again with other targets for :15/:30/:60 versions.",
+         "what the editor loved about it. With several people, `subjects` maps a clip name (or part of it) to "
+         "the speaker, e.g. {\"maria\": \"Maria\", \"A001\": \"Dr. Cole\"}; the story then cuts BETWEEN "
+         "them (no long runs of one voice, everyone heard) and the result reports each person's share. "
+         "Run it again with other targets for :15/:30/:60 versions.",
          _obj({"target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
                "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"}, "name": _S,
-               "reference": _S}),
+               "reference": _S, "subjects": {"type": "object", "additionalProperties": _S}}),
          _build_story_cut, SAFE_WRITE, needs_timeline=False),
     Tool("clean_up_speech", "Take ums/uhs, stumbles ('I, I') and dead air out of the open timeline "
          "(long pauses shortened to keep_pause_seconds, not removed) on a NEW duplicate, every track "
@@ -1078,7 +1082,8 @@ TOOLS = [
          _obj({"reference": _S, "target_seconds": {"type": "number"}, "brief": _S, "bin": _S,
                "clips": {"type": "array", "items": _S}, "use_timeline": {"type": "boolean"},
                "broll_bin": _S, "broll_clips": {"type": "array", "items": _S}, "story": {"type": "boolean"},
-               "clean_up": {"type": "boolean"}, "transitions": {"type": "boolean"}, "name": _S}, ["reference"]),
+               "clean_up": {"type": "boolean"}, "transitions": {"type": "boolean"}, "name": _S,
+               "subjects": {"type": "object", "additionalProperties": _S}}, ["reference"]),
          _cut_like_reference, SAFE_WRITE, needs_timeline=False),
     Tool("compare_to_reference", "Measure the OPEN timeline the way the reference was studied -- shot "
          "length, cuts/min, B-roll share, cutaway length, first cutaway, longest hold on the face -- and "

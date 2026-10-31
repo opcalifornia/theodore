@@ -30,7 +30,8 @@ def cut_like_reference(connect: Callable, reference: str, *, target_seconds: flo
                        clips: Optional[list] = None, bin: Optional[str] = None, use_timeline: bool = False,
                        broll_bin: Optional[str] = None, broll_clips: Optional[list] = None,
                        story: bool = True, clean_up: bool = True, transitions: bool = True,
-                       name: Optional[str] = None, progress: Optional[Callable] = None) -> dict:
+                       name: Optional[str] = None, progress: Optional[Callable] = None,
+                       subjects: Optional[dict] = None) -> dict:
     from theodore.resolve import transitions as trans_mod
     from theodore.study import reference as ref_mod
 
@@ -61,10 +62,10 @@ def cut_like_reference(connect: Callable, reference: str, *, target_seconds: flo
         sources = None if use_timeline else interview.find_clips(h, clips, bin)
         r = step("story", lambda: interview.build_story(
             h, clips=sources, use_timeline=bool(use_timeline), brief=brief, target_seconds=float(target_seconds),
-            name=name, reference=reference, progress=say))
+            name=name, reference=reference, progress=say, subjects=subjects))
         if r is None:
             return out
-        record("story", **_short(r, "seconds", "logline", "editor_notes", "unmatched_ids"))
+        record("story", **_short(r, "seconds", "logline", "editor_notes", "unmatched_ids", "intercut"))
         out["story"] = {"title": r.get("title"), "structure": r.get("structure"), "story": r.get("story"),
                         "alternate_hooks": r.get("alternate_hooks")}
     if clean_up:
