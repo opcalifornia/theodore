@@ -676,6 +676,25 @@ def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False,
     return ToolOutput(out, images=images)
 
 
+def _build_multicam(ctx, h, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
+                    camera_for=None, wide=None, name="Panel Multicam"):
+    from theodore.edit import interview, panel
+    try:
+        cams = interview.find_clips(h, cameras, camera_bin)
+        lav_clips = interview.find_clips(h, lavs, lav_bin) if (lavs or lav_bin) else []
+    except interview.InterviewError as exc:
+        raise ToolError(str(exc))
+    paths = lambda clips: [c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")]
+    try:
+        plan = panel.build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
+        made = panel.import_to_resolve(h, plan, name)
+    except panel.PanelError as exc:
+        raise ToolError(str(exc))
+    return {**made, **panel.summary(plan),
+            "note": "A real multicam clip: switch any cut's angle in Resolve's multicam viewer. Lavs are on "
+                    "their own audio tracks; camera scratch audio is off."}
+
+
 def _add_captions(ctx, h, style="social"):
     from theodore.resolve import transcribe
     try:
@@ -886,6 +905,16 @@ TOOLS = [
          _obj({"reference": _S, "strength": {"type": "number"}, "per_clip": {"type": "boolean"},
                "in_place": {"type": "boolean"}, "name": _S, "look_name": _S}, ["reference"]),
          _match_look, SAFE_WRITE),
+    Tool("build_multicam", "Multicam panel/interview, done end to end: syncs every camera and lav from "
+         "their audio (no timecode needed), works out who is talking from the lavs, which camera is on whom "
+         "(from on-camera motion, or camera_for={'Daniel': 'Cam B'}), and cuts it like a panel editor -- "
+         "speaker's angle, wide for cross-talk/openings/long answers, no shot under 1.5 s. Imported as a REAL "
+         "multicam clip + cut timeline with every lav on its own track, so any cut's angle can be switched "
+         "in Resolve. people = names for the lavs in order (else from file names).",
+         _obj({"camera_bin": _S, "cameras": {"type": "array", "items": _S}, "lav_bin": _S,
+               "lavs": {"type": "array", "items": _S}, "people": {"type": "array", "items": _S},
+               "camera_for": {"type": "object"}, "wide": _S, "name": _S}),
+         _build_multicam, SAFE_WRITE, needs_timeline=False),
     Tool("add_captions", "Caption the open timeline with Resolve's own speech-to-text: a new subtitle "
          "track. style social (short single lines for 9:16/muted autoplay), broadcast, netflix.",
          _obj({"style": {"type": "string", "enum": ["social", "broadcast", "netflix"]}}), _add_captions, WRITE),
