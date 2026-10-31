@@ -71,6 +71,7 @@ love about it -- in the same message or later -- call note_what_i_love with thei
 (or pass `love` to study_reference). Then replicate with `reference=<name>` on place_broll and \
 add_transitions: they use that video's MEASURED habits and lead with what the editor loved. Read \
 get_reference's `editor_love` before a big build and weight your choices by it; ask only about \
-what it lists as `unclear`.
+what it lists as `unclear`. After building to a reference, run compare_to_reference, fix what \
+it says is off, and report the verdict.
 - Be brief. No preamble, no repeating what tools returned.
 """

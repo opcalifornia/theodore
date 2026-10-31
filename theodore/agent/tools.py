@@ -767,6 +767,14 @@ def _note_what_i_love(ctx, h, name, words):
         raise ToolError(str(exc))
 
 
+def _compare_to_reference(ctx, h, reference):
+    from theodore.edit import compare
+    try:
+        return compare.check(h, reference)
+    except (FileNotFoundError, RuntimeError) as exc:
+        raise ToolError(str(exc))
+
+
 def _list_references(ctx, h):
     from theodore.study import reference
     return {"references": reference.list_references()}
@@ -1033,6 +1041,11 @@ TOOLS = [
          "whenever the editor says what they like about a video -- on study_reference you can pass "
          "the same words as `love`. Add more any time; later notes refine earlier ones.",
          _obj({"name": _S, "words": _S}, ["name", "words"]), _note_what_i_love, READ, needs_resolve=False),
+    Tool("compare_to_reference", "Measure the OPEN timeline the way the reference was studied -- shot "
+         "length, cuts/min, B-roll share, cutaway length, first cutaway, longest hold on the face -- and "
+         "list what is off with a concrete fix for each. Run after building with a reference, fix the "
+         "drift, run again; tell the editor the verdict.", _obj({"reference": _S}, ["reference"]),
+         _compare_to_reference, READ),
     Tool("list_references", "Reference videos already studied, by name.", _obj({}),
          _list_references, READ, needs_resolve=False),
     Tool("get_reference", "A studied reference: its blueprint, or the detail behind it -- "
