@@ -2444,17 +2444,32 @@ def install_panel(dest: Optional[str], dry_run: bool):
 @click.option("--name", default=None, help="Name to save it under (default: the file name).")
 @click.option("--no-vision", is_flag=True, help="Skip Claude's shot-by-shot look (no overlay/shot-size log).")
 @click.option("--no-transcript", is_flag=True, help="Skip transcription.")
-def study_cmd(video: str, name: Optional[str], no_vision: bool, no_transcript: bool):
+@click.option("--love", default="", help="What you love about it, in your words (timestamps like 0:42 work).")
+def study_cmd(video: str, name: Optional[str], no_vision: bool, no_transcript: bool, love: str):
     """Study a finished video: cuts, transitions, pacing, beat sync, speech,
     overlays -- and write an edit blueprint Claude can replicate."""
     from theodore.study import reference
 
     result = reference.study(Path(video), name, use_vision=not no_vision,
-                             use_transcript=not no_transcript,
+                             use_transcript=not no_transcript, love=love,
                              progress=lambda msg: click.echo(f"  {msg}..."))
     click.echo("")
     click.echo((Path(result["dir"]) / "report.md").read_text(encoding="utf-8"))
     click.echo(f"Saved to {result['dir']}")
+
+
+@cli.command(name="love")
+@click.argument("name")
+@click.argument("words")
+def love_cmd(name: str, words: str):
+    """Tell Theodore what you love about a studied reference, in your own words."""
+    from theodore.study import love
+
+    try:
+        result = love.add_note(name, words)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc))
+    click.echo(love.render(result))
 
 
 @cli.command(name="mcp-serve")

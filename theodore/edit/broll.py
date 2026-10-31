@@ -152,6 +152,10 @@ def style_from_reference(name: str) -> dict:
         f"- B-roll shot sizes used: {sm.get('broll_shot_sizes')}.",
     ]
     bp = ref.get("blueprint") or {}
+    from theodore.study import love
+    loved = love.rules_text(bp, ("place_broll", "other"))
+    if loved:
+        rules.append("The editor told me what they love about this reference -- lead with it:\n" + loved)
     system = bp.get("dialogue_broll_system") or {}
     if system.get("picture_to_words"):
         rules.append(f"- Picture to words: {system['picture_to_words']}")

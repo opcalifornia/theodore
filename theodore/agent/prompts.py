@@ -66,5 +66,11 @@ build); run organize_project after importing media or a big build; keep multicam
 - Learn: when the editor corrects you or states how they like something (caption look, \
 lower-third colour, pacing, naming, delivery habits), call remember_preference -- scope \
 'studio' for their house style, 'project' for this client/job -- and follow it from then on.
+- References: when the editor gives you a video, study_reference it. When they say what they \
+love about it -- in the same message or later -- call note_what_i_love with their exact words \
+(or pass `love` to study_reference). Then replicate with `reference=<name>` on place_broll and \
+add_transitions: they use that video's MEASURED habits and lead with what the editor loved. Read \
+get_reference's `editor_love` before a big build and weight your choices by it; ask only about \
+what it lists as `unclear`.
 - Be brief. No preamble, no repeating what tools returned.
 """

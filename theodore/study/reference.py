@@ -142,7 +142,7 @@ def _shot_table(shots: list[dict], log: dict[int, dict]) -> list[dict]:
 
 def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
           use_transcript: bool = True, progress: Optional[Callable[[str], None]] = None,
-          client=None) -> dict:
+          client=None, love: str = "") -> dict:
     """Study ``video`` and return {"name", "dir", "blueprint", "analysis"}."""
     video = Path(video).expanduser().resolve()
     if not video.exists():
@@ -218,6 +218,8 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
             analysis["speech"] = {"unknown": True, "reason": analysis.get("transcript_error")
                                   or "transcription skipped"}
         analysis["transcript"] = transcript_text
+        analysis["transcript_words"] = [{k: w[k] for k in ("word", "punctuated_word", "start", "end") if k in w}
+                                        for w in words]
 
     shot_log: dict[int, dict] = {}
     client = client or make_client()
@@ -284,6 +286,11 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
     (ref_dir / "blueprint.json").write_text(json.dumps(blueprint, indent=2), encoding="utf-8")
     (ref_dir / "report.md").write_text(render_report(blueprint, analysis), encoding="utf-8")
     shutil.rmtree(ref_dir / "audio", ignore_errors=True)
+    if love.strip():
+        from theodore.study import love as love_mod
+        say("Tying what you love to the measurements")
+        blueprint["editor_love"] = love_mod.save(ref_dir, love, love_mod.interpret(
+            client, love, name, blueprint, analysis))
     say("Done")
     return {"name": name, "dir": str(ref_dir), "blueprint": blueprint, "analysis": analysis}
 

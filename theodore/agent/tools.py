@@ -663,11 +663,12 @@ def _add_graphic(ctx, h, text, at_seconds, subtext="", style="boxed", seconds=4.
 
 
 def _add_transitions(ctx, h, kind="dissolve", seconds=0.5, at_cuts=None, fade_in=False, fade_out=False,
-                     name=None):
+                     name=None, reference=None, context=None):
     from theodore.resolve import transitions
     try:
         return transitions.add_transitions(h, at_cuts=at_cuts, kind=kind, seconds=float(seconds),
-                                           head=bool(fade_in), tail=bool(fade_out), name=name)
+                                           head=bool(fade_in), tail=bool(fade_out), name=name,
+                                           reference=reference, context=context)
     except transitions.TransitionError as exc:
         raise ToolError(str(exc))
 
@@ -746,15 +747,24 @@ def _add_captions(ctx, h, style="social"):
 # handlers: studying reference videos (files only, no Resolve)
 # ---------------------------------------------------------------------------
 
-def _study_reference(ctx, h, path, name=None, look_at_shots=True):
+def _study_reference(ctx, h, path, name=None, look_at_shots=True, love=""):
     from theodore.study import reference
     path = os.path.expanduser(path)
     if not os.path.isfile(path):
         raise ToolError(f"No video file at {path!r}.")
-    result = reference.study(Path(path), name, use_vision=bool(look_at_shots))
+    result = reference.study(Path(path), name, use_vision=bool(look_at_shots), love=love or "")
     bp = result["blueprint"]
     return {"name": result["name"], "saved_to": result["dir"], "blueprint": bp,
             "note": "Full shot-by-shot log, transitions, beats and transcript: get_reference."}
+
+
+def _note_what_i_love(ctx, h, name, words):
+    from theodore.study import love
+    try:
+        return {"name": name, "editor_love": love.add_note(name, words),
+                "note": "Saved with the reference; place_broll / add_transitions with this reference lead with it."}
+    except FileNotFoundError as exc:
+        raise ToolError(str(exc))
 
 
 def _list_references(ctx, h):
@@ -941,10 +951,15 @@ TOOLS = [
     Tool("add_transitions", "Add transitions -- dissolve, dip_to_black, dip_to_white -- at cuts of "
          "the main track (at_cuts: [1,3] = 1st and 3rd cut; omit for every cut), optionally fade_in / "
          "fade_out at the ends. Builds a NEW timeline via FCPXML (Resolve has no script call for "
-         "transitions). Clips need handles. Do this BEFORE graphics/colour: those don't survive the trip.",
+         "transitions). Clips need handles. Do this BEFORE graphics/colour: those don't survive the trip. "
+         "Pass `reference` (a studied video's name) to use ITS transition habits instead: which kinds "
+         "of cuts get transitions, how often, which kind and how long -- cuts hidden under B-roll are "
+         "skipped. `context` (face_to_face | face_broll | broll_to_broll) picks which of the "
+         "reference's habits the timeline's plain cuts follow; default is chosen for you.",
          _obj({"kind": {"type": "string", "enum": ["dissolve", "dip_to_black", "dip_to_white"]},
                "seconds": {"type": "number"}, "at_cuts": {"type": "array", "items": _I},
-               "fade_in": {"type": "boolean"}, "fade_out": {"type": "boolean"}, "name": _S}),
+               "fade_in": {"type": "boolean"}, "fade_out": {"type": "boolean"}, "name": _S,
+               "reference": _S, "context": {"type": "string", "enum": ["face_to_face", "face_broll", "broll_to_broll"]}}),
          _add_transitions, SAFE_WRITE),
     Tool("match_look", "Grade the open timeline to match the look of a reference image (a still from any "
          "film, a photo, a grade the editor likes): each clip gets its own LUT computed from its own pixels "
@@ -1006,8 +1021,15 @@ TOOLS = [
          "what's said, and -- looking at every shot -- shot sizes, A/B-roll, overlays, titles, "
          "look. Returns an edit blueprint with a recipe to replicate it. Takes ~1 min per minute "
          "of video. Use whenever the editor gives you a video to learn from or copy.",
-         _obj({"path": _S, "name": _S, "look_at_shots": {"type": "boolean"}}, ["path"]),
+         _obj({"path": _S, "name": _S, "look_at_shots": {"type": "boolean"}, "love": _S}, ["path"]),
          _study_reference, READ, needs_resolve=False),
+    Tool("note_what_i_love", "Record, in the editor's own words, what they love about a studied "
+         "reference ('the cutaways come in late and the music drops on the reveal', 'the dissolves at "
+         "0:42'). Timestamps like 0:42 are looked up. Ties each thing to measured evidence and the "
+         "tool that reproduces it; saved with the reference and used by later edits. Call this "
+         "whenever the editor says what they like about a video -- on study_reference you can pass "
+         "the same words as `love`. Add more any time; later notes refine earlier ones.",
+         _obj({"name": _S, "words": _S}, ["name", "words"]), _note_what_i_love, READ, needs_resolve=False),
     Tool("list_references", "Reference videos already studied, by name.", _obj({}),
          _list_references, READ, needs_resolve=False),
     Tool("get_reference", "A studied reference: its blueprint, or the detail behind it -- "
