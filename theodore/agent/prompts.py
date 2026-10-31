@@ -25,7 +25,8 @@ The post-house pipeline (the order matters):
 organise bins -> transcribe -> selects / story (build_story_cut) -> clean_up_speech -> \
 b-roll (place_broll) -> transitions (add_transitions -- before graphics/colour, which don't \
 survive its round trip) -> titles & lower thirds (add_graphic) -> captions (add_captions) -> \
-social versions (make_social_version) -> colour & audio -> deliver.
+social versions (make_social_version) -> colour & audio -> deliver (the `deliver` tool: \
+master + every social cut in one call, then tell the editor where the files and note are).
 
 Editorial craft you apply:
 - Interviews: hook in the first 3-5 s (the most surprising/emotional/quotable line), complete \

@@ -590,6 +590,15 @@ def _make_social_version(ctx, h, aspect="9:16", width=None, height=None, name=No
         raise ToolError(str(exc))
 
 
+def _deliver(ctx, h, timelines=None, target_dir=None, quality="high", audio=True, note=""):
+    from theodore.resolve import deliver
+    try:
+        return deliver.deliver(h, timelines=timelines, target_dir=target_dir, quality=quality,
+                               audio=bool(audio), note=note)
+    except deliver.DeliverError as exc:
+        raise ToolError(str(exc))
+
+
 def _resolve_api_docs(ctx, h, query=None, section=None):
     from theodore.resolve import docs
     if section:
@@ -624,14 +633,18 @@ def _clean_up_speech(ctx, h, max_pause_seconds=0.6, keep_pause_seconds=0.25, fil
                             keep_pause=float(keep_pause_seconds), new_name=name, dry_run=bool(preview))
 
 
-def _place_broll(ctx, h, bin=None, clips=None, coverage=0.4, brief="", in_place=False, name=None):
+def _place_broll(ctx, h, bin=None, clips=None, coverage=0.4, brief="", in_place=False, name=None,
+                 reference=None):
     from theodore.edit import broll, interview
     try:
         library = interview.find_clips(h, clips, bin)
     except interview.InterviewError as exc:
         raise ToolError(str(exc))
-    return broll.place_broll(h, library, coverage=float(coverage), brief=brief,
-                             on_duplicate=not in_place, name=name)
+    try:
+        return broll.place_broll(h, library, coverage=float(coverage), brief=brief,
+                                 on_duplicate=not in_place, name=name, reference=reference)
+    except (FileNotFoundError, KeyError, RuntimeError) as exc:
+        raise ToolError(str(exc))
 
 
 def _add_graphic(ctx, h, text, at_seconds, subtext="", style="boxed", seconds=4.0, accent="#E8B04A"):
@@ -856,6 +869,13 @@ TOOLS = [
          _queue_render, SAFE_WRITE),
     Tool("start_render", "Start rendering queued jobs (all, or the given ids). Asks the editor "
          "to confirm.", _obj({"job_ids": {"type": "array", "items": _S}}), _start_render, RENDER),
+    Tool("deliver", "Render finished timelines for the client as H.264 MP4 into a delivery folder "
+         "(default ~/Movies/Theodore Deliveries/<project>), versioned _v1/_v2 so nothing is ever "
+         "overwritten, plus a delivery note. `timelines` names which to send (e.g. the 16:9 master "
+         "and its 9:16 cut-down); default is the open one. Blocks until done. Asks the editor to "
+         "confirm.", _obj({"timelines": {"type": "array", "items": _S}, "target_dir": _S,
+                           "quality": {"type": "string", "enum": ["auto", "high", "medium", "low"]},
+                           "audio": {"type": "boolean"}, "note": _S}), _deliver, RENDER),
     Tool("get_render_status", "Whether a render is running, and one job's status.",
          _obj({"job_id": _S}), _render_status, READ, needs_timeline=False),
     # theodore's editorial engine
@@ -905,9 +925,12 @@ TOOLS = [
     Tool("place_broll", "Lay B-roll over the open timeline: Claude looks at every clip in the bin "
          "(cached), reads the cut's transcript, and places cutaways that match the words on the first "
          "free track above (video only -- the interview sound stays). coverage = share of runtime "
-         "(0.3-0.6). On a duplicate unless in_place.",
+         "(0.3-0.6). Pass `reference` (a studied reference's name) to cut the cutaways the way that "
+         "video does: measured lengths, lead-in, phrase breaks, how much dialogue is covered. "
+         "On a duplicate unless in_place.",
          _obj({"bin": _S, "clips": {"type": "array", "items": _S}, "coverage": {"type": "number"},
-               "brief": _S, "in_place": {"type": "boolean"}, "name": _S}), _place_broll, SAFE_WRITE),
+               "brief": _S, "in_place": {"type": "boolean"}, "name": _S, "reference": _S}),
+         _place_broll, SAFE_WRITE),
     Tool("add_graphic", "Add a designed title or lower third at at_seconds (timeline seconds) on a "
          "free track above the picture -- never inserted into the edit. style: boxed (plate + accent "
          "bar lower third), clean (text + accent line), title_card (big centred over picture), "

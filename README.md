@@ -29,7 +29,7 @@ timeline has exactly one, so an assembly mixing 23.976 and 29.97 footage is
 refused with a message naming each subject and its rate, before anything is
 created in Resolve, rather than built with half its cuts in the wrong place.
 Conform the odd footage out and re-ingest it, or build those subjects as
-separate timelines. **Not yet built:** client export and voice control.
+separate timelines. **Client export:** the `deliver` tool renders the master and each social cut-down as versioned H.264 MP4s (`_v1`, `_v2`, never overwritten) with a delivery note. **Reference study** also measures picture over speech (talking heads vs B-roll over dialogue, cutaway length/lead-in/phrase breaks, music bed vs voice), and `place_broll` can match it via `reference`. **Not yet built:** voice control.
 Module boundaries are deliberately kept clean so all of that is additive,
 not a rewrite.
 

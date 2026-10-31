@@ -21,7 +21,7 @@ from typing import Callable, Optional
 from theodore import config
 from theodore.llm import make_client
 from theodore.analyze.claude_client import CostTracker, call_json
-from theodore.study import rhythm, shots as shot_mod, signals, vision
+from theodore.study import layers, rhythm, shots as shot_mod, signals, vision
 
 REFERENCES_DIR = "references"
 
@@ -48,6 +48,15 @@ SYNTH_INSTRUCTIONS = """Respond with ONLY a JSON object:
  "music_sync_rules": ["..."],
  "story_rules": ["<how speech, A-roll and B-roll are cut together>"],
  "a_roll_b_roll": {"a_roll_pct": <0-100>, "b_roll_pct": <0-100>, "pattern": "..."},
+ "story_arc": [{"beat": "<hook/setup/stakes/turn/payoff/button...>", "start": <s>, "end": <s>,
+                "what_is_said": "<the point being made, quoting key words>", "picture": "<talking head, or what B-roll shows>"}],
+ "dialogue_broll_system": {"when_cutaways_start": "<how far into a line, vs the first face time>",
+                           "how_long": "<seconds, single shot or montage>",
+                           "where_they_cut": "<on phrase breaks? mid-line? return to face before the line ends?>",
+                           "picture_to_words": "<literal | illustrative | emotional | rhythmic -- with 2-3 quoted examples of words -> picture from `cutaways`>",
+                           "what_stays_on_face": "<the moments the editor never covers>",
+                           "broll_shot_choice": "<sizes, movement, subjects, how B-roll shots are sequenced against each other>"},
+ "score_system": "<how the music bed is used: entry, ducking under speech from score_vs_speech, rises in pauses, peaks and what picture sits on them, exit>",
  "overlay_system": [{"type": "...", "position": "...", "style": "...", "timing": "<when/how long>",
                      "resolve_how": "<Text+/Fusion title/generator/composite...>"}],
  "text_and_titles": ["..."],
@@ -172,6 +181,7 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
     }
 
     words: list[dict] = []
+    rms = None
     transcript_text = ""
     if info.has_audio:
         say("Listening: tempo, beats, energy, loudness")
@@ -216,6 +226,18 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
         shot_log = vision.describe_shots(client, video, shots, ref_dir / "frames", cost, progress=say)
     analysis["shot_log"] = {str(k): v for k, v in sorted(shot_log.items())}
 
+    if shot_log and words:
+        say("Laying picture over speech: talking heads, cutaways, music bed")
+        spans = rhythm.speech_spans(words)
+        rows = layers.label_shots(shots, shot_log, spans)
+        cuts = layers.cutaways(rows, words, spans)
+        analysis["layers"] = {
+            "summary": layers.summarize(rows, cuts, spans, duration),
+            "cutaways": cuts,
+            "shots": rows,
+            "score": layers.score_vs_speech(rms, spans, duration, rhythm.ENV_RATE, rows) if rms is not None else {},
+        }
+
     say("Working out how it was edited")
     payload = {
         "media": analysis["media"], "pacing": analysis["pacing"],
@@ -228,6 +250,13 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
     }
     roles = Counter((v.get("role") or "unknown") for v in shot_log.values())
     payload["role_counts"] = dict(roles)
+    if "layers" in analysis:
+        lay = analysis["layers"]
+        payload["picture_over_speech"] = {"summary": lay["summary"], "score_vs_speech": lay["score"],
+                                          "cutaways": lay["cutaways"][:60]}
+        labels = {r["index"]: r["label"] for r in lay["shots"]}
+        for row in payload["shots"]:
+            row["label"] = labels.get(row["i"])
     blueprint = call_json(
         client, pass_name="study-blueprint", model=vision.STUDY_MODEL, system=SYNTH_SYSTEM,
         user="Breakdown:\n" + json.dumps(payload, separators=(",", ":")) + "\n\n" + SYNTH_INSTRUCTIONS,
@@ -246,6 +275,8 @@ def study(video: Path, name: Optional[str] = None, *, use_vision: bool = True,
         "cuts_on_beat_pct": analysis.get("music", {}).get("sync", {}).get("cuts_on_beat_pct"),
         "speech_ratio": analysis.get("speech", {}).get("speech_ratio"),
         "integrated_lufs": analysis.get("loudness", {}).get("integrated_lufs"),
+        "picture_over_speech": analysis.get("layers", {}).get("summary"),
+        "score_vs_speech": analysis.get("layers", {}).get("score"),
     }
     analysis["claude_calls"] = cost.calls
 
@@ -295,8 +326,28 @@ def render_report(bp: dict, an: dict) -> str:
                      f"{t.get('when_used')} — *Resolve:* {t.get('resolve_how')}")
     lines += ["", "## Music sync", _bullets(bp.get("music_sync_rules")),
               "", "## Story / A-roll & B-roll", _bullets(bp.get("story_rules")),
-              f"- Pattern: {(bp.get('a_roll_b_roll') or {}).get('pattern')}",
-              "", "## Overlays & graphics"]
+              f"- Pattern: {(bp.get('a_roll_b_roll') or {}).get('pattern')}"]
+    lay = an.get("layers") or {}
+    if lay:
+        sm = lay["summary"]
+        lines += ["", "## Picture over speech (measured)",
+                  f"- Time on screen: {sm['time_pct']}",
+                  f"- {sm['dialogue_covered_by_broll_pct']}% of dialogue is under B-roll; {sm['cutaways']} cutaways, "
+                  f"{sm.get('cutaway_seconds')}; first at {sm.get('first_cutaway_at')}s; "
+                  f"{sm['cutaways_on_phrase_pct']}% start on a phrase break; "
+                  f"{sm['cutaways_return_before_line_end_pct']}% return to the face before the line ends",
+                  f"- Sequence (T talking head, B B-roll over speech, b B-roll clean, C card): {sm['sequence']}"]
+        if lay.get("score"):
+            lines.append(f"- Music bed vs speech: {lay['score']}")
+    system = bp.get("dialogue_broll_system") or {}
+    if system:
+        lines += ["", "## How B-roll is laid over dialogue"] + [f"- **{k.replace('_', ' ')}:** {v}" for k, v in system.items()]
+    if bp.get("story_arc"):
+        lines += ["", "## Story arc"] + [f"- {b.get('start')}–{b.get('end')}s **{b.get('beat')}**: "
+                                        f"{b.get('what_is_said')} → {b.get('picture')}" for b in bp["story_arc"]]
+    if bp.get("score_system"):
+        lines += ["", "## Score", str(bp["score_system"])]
+    lines += ["", "## Overlays & graphics"]
     for o in bp.get("overlay_system") or []:
         lines.append(f"- **{o.get('type')}** at {o.get('position')}: {o.get('style')}; {o.get('timing')} "
                      f"— *Resolve:* {o.get('resolve_how')}")

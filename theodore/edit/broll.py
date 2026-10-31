@@ -127,9 +127,52 @@ def _free_track(tl, start: int, end: int, lowest: int = 2) -> int:
     return int(tl.GetTrackCount("video"))
 
 
+def style_from_reference(name: str) -> dict:
+    """Cutaway habits measured from a studied reference -> placement targets and prompt rules."""
+    from theodore.study import reference
+    ref = reference.load_reference(name)
+    lay = (ref.get("analysis") or {}).get("layers") or {}
+    sm = lay.get("summary") or {}
+    if not sm.get("cutaways"):
+        raise RuntimeError(f"The reference {name!r} has no measured cutaways over speech (no transcript, or no B-roll "
+                           "over dialogue). Pick another or study it again with transcription.")
+    secs = sm.get("cutaway_seconds") or {}
+    time_pct = sm.get("time_pct") or {}
+    cover = (time_pct.get("broll_over_speech", 0) or 0) / 100
+    rules = [
+        f"Match the reference '{name}' (measured, not guessed):",
+        f"- Cutaways run {secs.get('min')}-{secs.get('max')}s, median {secs.get('median')}s "
+        f"({sm.get('cutaway_shots_median')} shot(s) each).",
+        f"- First cutaway at about {sm.get('first_cutaway_at')}s; the longest unbroken stretch on the face is "
+        f"{sm.get('longest_uninterrupted_face_seconds')}s.",
+        f"- A cutaway comes in a median {sm.get('lead_in_seconds_median')}s into the line it covers; "
+        f"{sm.get('cutaways_on_phrase_pct')}% start on a phrase break; "
+        f"{sm.get('cutaways_return_before_line_end_pct')}% return to the face before the line ends.",
+        f"- {sm.get('dialogue_covered_by_broll_pct')}% of spoken time is under B-roll.",
+        f"- B-roll shot sizes used: {sm.get('broll_shot_sizes')}.",
+    ]
+    bp = ref.get("blueprint") or {}
+    system = bp.get("dialogue_broll_system") or {}
+    if system.get("picture_to_words"):
+        rules.append(f"- Picture to words: {system['picture_to_words']}")
+    if system.get("what_stays_on_face"):
+        rules.append(f"- Stays on the face: {system['what_stays_on_face']}")
+    examples = [f"  \"{c['covers']}\" -> {', '.join(str(x) for x in c['pictures'] if x)}"
+                for c in (lay.get("cutaways") or [])[:4] if c.get("covers")]
+    if examples:
+        rules.append("- Examples of words -> picture in the reference:\n" + "\n".join(examples))
+    return {"coverage": round(cover, 2) if cover else None, "min_seconds": secs.get("min"),
+            "max_seconds": secs.get("max"), "rules": "\n".join(rules)}
+
+
 def place_broll(h, clips: list, *, coverage: float = 0.4, brief: str = "", on_duplicate: bool = True,
-                name: Optional[str] = None, client=None, progress=None) -> dict:
+                name: Optional[str] = None, client=None, progress=None, reference: Optional[str] = None) -> dict:
     from theodore.resolve import timeline_ops, transcribe
+
+    style = style_from_reference(reference) if reference else None
+    if style:
+        brief = (brief + "\n\n" if brief else "") + style["rules"]
+        coverage = style["coverage"] or coverage
 
     say = progress or (lambda m: None)
     client = client or make_client()
@@ -164,7 +207,10 @@ def place_broll(h, clips: list, *, coverage: float = 0.4, brief: str = "", on_du
             refused.append(f"unknown clip {p.get('clip')!r}")
             continue
         clip_frames = int(float(clip.GetClipProperty("Frames") or 0))
-        dur = int(round(float(p.get("duration_seconds") or 3) * fps))
+        want = float(p.get("duration_seconds") or 3)
+        if style and style["min_seconds"] and style["max_seconds"]:   # stay inside the reference's range
+            want = min(max(want, float(style["min_seconds"])), float(style["max_seconds"]))
+        dur = int(round(want * fps))
         src = int(round(float(p.get("source_start_seconds") or 0) * fps))
         src = max(0, min(src, max(clip_frames - dur, 0)))
         dur = min(dur, clip_frames - src) if clip_frames else dur
@@ -185,4 +231,5 @@ def place_broll(h, clips: list, *, coverage: float = 0.4, brief: str = "", on_du
     covered = sum(p["seconds"] for p in placed)
     return {"timeline": tl.GetName(), "placed": placed, "refused": refused,
             "coverage_pct": round(100 * covered / runtime, 1) if runtime else 0,
-            "notes": plan.get("notes"), "library_logged": len(library)}
+            "notes": plan.get("notes"), "library_logged": len(library),
+            "matched_reference": reference}
