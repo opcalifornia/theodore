@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.theodore.editor.panel</Id>
+        <Name>Theodore</Name>
+        <Version>0.1.0</Version>
+        <Description>AI post-production assistant for interview and documentary editing -- browse segments, selects, duplicates and gaps, and run "say" commands without leaving Resolve.</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

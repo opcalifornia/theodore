@@ -1,0 +1,6 @@
+anthropic>=0.40.0
+requests>=2.31
+python-dotenv>=1.0
+click>=8.1
+numpy>=1.26
+praat-parselmouth>=0.4.3,<0.5
