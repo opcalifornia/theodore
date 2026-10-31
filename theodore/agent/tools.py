@@ -695,6 +695,14 @@ def _build_multicam(ctx, h, camera_bin=None, cameras=None, lav_bin=None, lavs=No
                     "their own audio tracks; camera scratch audio is off."}
 
 
+def _speaker_follow(ctx, h, aspect="9:16", zoom=1.35, names=None, name=None):
+    from theodore.edit import reframe
+    try:
+        return reframe.speaker_follow(h, aspect=aspect, zoom=float(zoom), names=names, name=name)
+    except reframe.ReframeError as exc:
+        raise ToolError(str(exc))
+
+
 def _add_captions(ctx, h, style="social"):
     from theodore.resolve import transcribe
     try:
@@ -915,6 +923,14 @@ TOOLS = [
                "lavs": {"type": "array", "items": _S}, "people": {"type": "array", "items": _S},
                "camera_for": {"type": "object"}, "wide": _S, "name": _S}),
          _build_multicam, SAFE_WRITE, needs_timeline=False),
+    Tool("speaker_follow", "One wide shot with several people -> a vertical (9:16) or other-shape cut "
+         "that punches in on whoever is talking, line by line. Works on any camera Resolve reads (RED, "
+         "ARRIRAW, BRAW, ProRes): Resolve renders a small analysis copy; Claude finds the faces; Resolve's "
+         "transcript + mouth movement decide who says each line. Each shot is its own clip with Pan/Tilt/"
+         "Zoom set (editable in the Inspector), on a DUPLICATE. names: labels for people left-to-right. "
+         "Follow with add_captions and add_graphic for a finished social piece.",
+         _obj({"aspect": _S, "zoom": {"type": "number"}, "names": {"type": "array", "items": _S}, "name": _S}),
+         _speaker_follow, SAFE_WRITE),
     Tool("add_captions", "Caption the open timeline with Resolve's own speech-to-text: a new subtitle "
          "track. style social (short single lines for 9:16/muted autoplay), broadcast, netflix.",
          _obj({"style": {"type": "string", "enum": ["social", "broadcast", "netflix"]}}), _add_captions, WRITE),

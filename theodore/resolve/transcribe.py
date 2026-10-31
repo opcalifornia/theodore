@@ -94,7 +94,16 @@ def sentences(words: list[dict]) -> list[dict]:
 def _run_on(h, tl, word_level: bool) -> dict:
     project = h.project
     t0 = time.time()
-    if not tl.CreateSubtitlesFromAudio(_settings(h.resolve, word_level)):
+    # Resolve only creates subtitles from the Edit page (it fails on Deliver).
+    page = h.resolve.GetCurrentPage() if h.resolve else None
+    if h.resolve and page != "edit":
+        h.resolve.OpenPage("edit")
+    try:
+        ok = tl.CreateSubtitlesFromAudio(_settings(h.resolve, word_level))
+    finally:
+        if h.resolve and page and page != "edit":
+            h.resolve.OpenPage(page)
+    if not ok:
         raise TranscribeError(
             "Resolve's Create Subtitles from Audio failed. It needs DaVinci Resolve Studio and "
             "audio on the timeline; the first run may also download Resolve's speech model.")
