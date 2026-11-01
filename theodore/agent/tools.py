@@ -729,11 +729,12 @@ def _match_look(ctx, h, reference, strength=0.85, per_clip=True, in_place=False,
 
 
 def _build_multicam(ctx, h, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
-                    camera_for=None, wide=None, name="Panel Multicam"):
+                    camera_for=None, wide=None, name="Panel Multicam", roam=None, left_to_right=None):
     from theodore.edit import panel
     try:
         made = panel.multicam_from_bins(h, camera_bin=camera_bin, cameras=cameras, lav_bin=lav_bin, lavs=lavs,
-                                        people=people, camera_for=camera_for, wide=wide, name=name)
+                                        people=people, camera_for=camera_for, wide=wide, name=name, roam=roam,
+                                        left_to_right=left_to_right)
     except panel.PanelError as exc:
         raise ToolError(str(exc))
     return {**made,
@@ -1092,10 +1093,14 @@ TOOLS = [
          "(from on-camera motion, or camera_for={'Daniel': 'Cam B'}), and cuts it like a panel editor -- "
          "speaker's angle, wide for cross-talk/openings/long answers, no shot under 1.5 s. Imported as a REAL "
          "multicam clip + cut timeline with every lav on its own track, so any cut's angle can be switched "
-         "in Resolve. people = names for the lavs in order (else from file names).",
+         "in Resolve. people = names for the lavs in order (else from file names). A camera that PANS between "
+         "two people: roam='<camera name>' and left_to_right=[left person, right person] (as named in people); "
+         "Claude checks where it is pointing every ~2 s and it is used only while it is on the speaker, "
+         "otherwise the wide covers.",
          _obj({"camera_bin": _S, "cameras": {"type": "array", "items": _S}, "lav_bin": _S,
                "lavs": {"type": "array", "items": _S}, "people": {"type": "array", "items": _S},
-               "camera_for": {"type": "object"}, "wide": _S, "name": _S}),
+               "camera_for": {"type": "object"}, "wide": _S, "name": _S, "roam": _S,
+               "left_to_right": {"type": "array", "items": _S}}),
          _build_multicam, SAFE_WRITE, needs_timeline=False),
     Tool("package_shoot", "THE multicam money job in one call: a shoot in, every deliverable out. Syncs and "
          "angle-cuts the cameras/lavs (or starts from source_timeline), then builds, each as its own named "

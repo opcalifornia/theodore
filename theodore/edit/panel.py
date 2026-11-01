@@ -98,7 +98,7 @@ class Source:
     start: float = 0.0     # on the shared clock (seconds)
     confidence: float = 1.0
     person: Optional[str] = None
-    role: Optional[str] = None   # wide | close
+    role: Optional[str] = None   # wide | close | roam (pans between people)
 
 
 @dataclass
@@ -253,7 +253,10 @@ def assign_people(cameras: list[Source], masks: dict[str, np.ndarray], length: f
     return notes
 
 
-def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float) -> list[tuple]:
+def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float,
+             framing: Optional[dict] = None) -> list[tuple]:
+    """`framing`: for a roaming camera, person -> mask of when it is framing that person."""
+    roam = next((c.name for c in cameras if c.role == "roam"), None)
     wide = next((c.name for c in cameras if c.role == "wide"), cameras[0].name)
     by_person = {c.person: c.name for c in cameras if c.person}
     frames = int(np.ceil(length / HOP))
@@ -264,6 +267,8 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
         who = [names[i] for i in range(len(names)) if talking[i, t]]
         if len(who) == 1 and who[0] in by_person:
             choice[t], why[t] = by_person[who[0]], f"{who[0]} talking"
+        elif len(who) == 1 and roam and framing and framing.get(who[0]) is not None and framing[who[0]][t]:
+            choice[t], why[t] = roam, f"{who[0]} talking"      # the pan camera is on them right now
         elif len(who) > 1:
             choice[t], why[t] = wide, "cross-talk"
     # Open and close on the wide.
@@ -301,7 +306,8 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
     # picture moves) -- never so far that the shot we leave drops under MIN_SHOT.
     lead = int(round(LEAD / HOP))
     for i in range(1, len(segs)):
-        if segs[i][2] != wide and segs[i][2] != segs[i - 1][2] and "talking" in segs[i][3]:
+        # (not for a roaming camera: it is only on them from the moment it arrives)
+        if segs[i][2] not in (wide, roam) and segs[i][2] != segs[i - 1][2] and "talking" in segs[i][3]:
             room = (segs[i - 1][1] - segs[i - 1][0]) - int(round(MIN_SHOT / HOP))
             shift = max(0, min(lead, room))
             segs[i][0] -= shift
@@ -357,8 +363,67 @@ def plan_cut(cameras: list[Source], masks: dict[str, np.ndarray], length: float)
     return out
 
 
+FRAME_EVERY = 2.0
+FRAMING_PROMPT = """These numbered frames come from ONE camera that pans between two people sitting side by side. \
+For each frame say who the shot is centred on: "left" (the person on the viewer's left), "right" (the person on the \
+viewer's right), "both" (both clearly in frame, neither favoured), or "neither" (mid-pan blur, a wall, something else). \
+Return ONLY JSON: {"frames": [{"n": 1, "on": "left"}, ...]} covering every frame."""
+
+
+def classify_frames(jpgs: list, client=None) -> list[str]:
+    """Who each frame is centred on: left | right | both | neither (Claude looks at them in batches)."""
+    import base64
+    from theodore.analyze.claude_client import CostTracker, call_json
+    from theodore.edit.reframe import VISION_MODEL
+    from theodore.llm import make_client
+    client = client or make_client()
+    out: list[str] = []
+    for i in range(0, len(jpgs), 10):
+        batch = jpgs[i:i + 10]
+        content = []
+        for n, f in enumerate(batch, 1):
+            content += [{"type": "text", "text": f"Frame {n}:"},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                     "data": base64.b64encode(Path(f).read_bytes()).decode()}}]
+        content.append({"type": "text", "text": FRAMING_PROMPT})
+        data = call_json(client, pass_name="roam-framing", model=VISION_MODEL,
+                         system="You judge camera framing precisely.", user=content, max_tokens=800,
+                         cost_tracker=CostTracker())
+        got = {int(f.get("n", 0)): str(f.get("on", "neither")).lower() for f in data.get("frames", [])}
+        out += [got.get(n, "neither") if got.get(n) in ("left", "right", "both", "neither") else "neither"
+                for n in range(1, len(batch) + 1)]
+    return out
+
+
+def roam_framing(cam: Source, left_to_right: list[str], length: float, origin: float, client=None,
+                 every: float = FRAME_EVERY, classify=classify_frames) -> dict:
+    """person -> bool mask (one per HOP on the shared clock) of when the roaming camera is framing them.
+    left_to_right names the two people as they sit, left first."""
+    if len(left_to_right) != 2:
+        raise PanelError("A roaming camera needs the two people's names, left to right.")
+    tmp = Path(tempfile.mkdtemp(prefix="theodore-roam-"))
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", cam.path, "-vf", f"fps=1/{every},scale=384:-2",
+                    "-q:v", "5", str(tmp / "%05d.jpg")], check=True, timeout=3600)
+    jpgs = sorted(tmp.glob("*.jpg"))
+    on = classify(jpgs, client) if jpgs else []
+    n = int(np.ceil(length / HOP))
+    masks = {p: np.zeros(n, bool) for p in left_to_right}
+    side = {"left": left_to_right[0], "right": left_to_right[1]}
+    for k, who in enumerate(on):
+        if who not in side:
+            continue
+        first = int(round((k * every + cam.start - origin) / HOP))
+        last = int(round(((k + 1) * every + cam.start - origin) / HOP))
+        lo, hi = max(first, 0), min(last, n)
+        if hi > lo:
+            masks[side[who]][lo:hi] = True
+    shutil.rmtree(tmp, ignore_errors=True)
+    return masks
+
+
 def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optional[list[str]] = None,
-               mapping: Optional[dict] = None, wide: Optional[str] = None) -> PanelPlan:
+               mapping: Optional[dict] = None, wide: Optional[str] = None, roam: Optional[str] = None,
+               left_to_right: Optional[list[str]] = None, framer=None) -> PanelPlan:
     cams = [Source(Path(p).stem, p, "camera", _probe(p)) for p in camera_paths]
     lavs = [Source(Path(p).stem, p, "lav", _probe(p)) for p in lav_paths]
     if not cams:
@@ -372,11 +437,26 @@ def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optiona
     start_all = max(s.start for s in cams)          # every camera rolling from here
     length = end - origin
     masks = activity(lavs, length, origin) if lavs else {}
+    roam_cam = None
+    if roam:
+        roam_cam = next((c for c in cams if roam.lower() in c.name.lower()), None)
+        if roam_cam is None:
+            raise PanelError(f"No camera matches roam={roam!r}.")
+        roam_cam.role, roam_cam.person = "roam", None
     notes = assign_people(cams, masks, length, origin, mapping, wide)
     fps = cams[0].info["fps"]
     plan = PanelPlan(cams, lavs, fps, length, origin, notes=sync_notes + notes)
     plan.speech = {p: [(a * HOP + origin, b * HOP + origin) for a, b in _runs(m)] for p, m in masks.items()}
-    cuts = plan_cut(cams, masks, length)
+    framing = None
+    if roam_cam is not None:
+        if not left_to_right or any(p not in masks for p in left_to_right):
+            raise PanelError("Roaming camera: give left_to_right as the two people's names (as the lavs are named).")
+        framing = (framer or roam_framing)(roam_cam, left_to_right, length, origin)
+        talk = sum(int(masks[p].sum()) for p in left_to_right) or 1
+        on_them = sum(int((masks[p] & framing[p]).sum()) for p in left_to_right)
+        plan.notes.append(f"The roaming camera ({roam_cam.name}) was on whoever was talking {on_them * 100 // talk}% of "
+                          "the time; the wide covers the rest.")
+    cuts = plan_cut(cams, masks, length, framing)
     lo = start_all - origin
     hi = min(s.start + s.info["duration"] for s in cams) - origin
     clipped = [(max(a, lo) + origin, min(b, hi) + origin, cam, why) for a, b, cam, why in cuts
@@ -582,7 +662,8 @@ def render_preview(plan: PanelPlan, out_path, *, height: int = 576) -> Path:
 
 
 def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=None, people=None,
-                       camera_for=None, wide=None, name="Panel Multicam", preview: bool = True) -> dict:
+                       camera_for=None, wide=None, name="Panel Multicam", preview: bool = True, roam=None,
+                       left_to_right=None) -> dict:
     """Find the cameras and lavs in the media pool, sync, cut and import: the whole multicam build."""
     from theodore.edit import interview
     try:
@@ -593,7 +674,8 @@ def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=N
     # Resolve lists bin clips in its own order; pair people with mics by file name, never by position.
     paths = lambda clips: sorted((c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")),
                                  key=lambda p: Path(p).name.lower())
-    plan = build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
+    plan = build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide, roam=roam,
+                      left_to_right=left_to_right)
     made = {**import_to_resolve(h, plan, name), **summary(plan)}
     if preview:
         from theodore import config, share

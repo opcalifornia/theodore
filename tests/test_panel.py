@@ -1,7 +1,10 @@
 """Panel multicam: audio sync offsets and the cutting rules (no Resolve)."""
 from __future__ import annotations
 
+import subprocess
+
 import numpy as np
+import pytest
 
 from theodore.edit import panel
 
@@ -150,3 +153,54 @@ def test_people_are_paired_with_mics_by_file_name_not_the_order_resolve_lists_th
     monkeypatch.setattr(panel, "summary", lambda plan: {})
     panel.multicam_from_bins(None, camera_bin="Cams", lav_bin="Lavs", people=["A", "B", "D"], preview=False)
     assert [p.split("/")[-1] for p in seen["lavs"]] == ["Headset-0.wav", "Headset-1.wav", "Headset-3.wav"]
+
+
+def _roam_world():
+    frames = int(40 / panel.HOP)
+    fred = np.zeros(frames, bool); other = np.zeros(frames, bool)
+    fred[int(4 / panel.HOP):int(16 / panel.HOP)] = True        # Fred talks 4-16
+    other[int(20 / panel.HOP):int(34 / panel.HOP)] = True      # the other man talks 20-34
+    pan_on_fred = np.zeros(frames, bool); pan_on_other = np.zeros(frames, bool)
+    pan_on_fred[int(0 / panel.HOP):int(12 / panel.HOP)] = True     # the pan is late leaving Fred...
+    pan_on_other[int(22 / panel.HOP):int(40 / panel.HOP)] = True   # ...and slow arriving at the other man
+    cams = [panel.Source("red", "", "camera", {}, role="wide"), panel.Source("alexa", "", "camera", {}, role="roam")]
+    return cams, {"Fred": fred, "Other": other}, {"Fred": pan_on_fred, "Other": pan_on_other}
+
+
+def test_the_pan_camera_is_used_only_while_it_is_actually_on_the_speaker():
+    cams, masks, framing = _roam_world()
+    cuts = panel.plan_cut(cams, masks, 40.0, framing)
+    on_alexa = [(c[0], c[1]) for c in cuts if c[2] == "alexa"]
+    assert on_alexa and all(a >= 3.6 for a, _ in on_alexa)                   # never before Fred is talking
+    covered = lambda lo, hi: sum(max(0, min(b, hi) - max(a, lo)) for a, b in on_alexa)
+    assert covered(4, 12) >= 6                       # on Fred while the pan is on Fred
+    assert covered(12.5, 16) == 0                    # Fred still talking, pan has left: back to the wide
+    assert covered(20, 22) == 0                      # pan hasn't arrived at the other man yet: wide
+    assert covered(23, 34) >= 9
+    wide_time = sum(c[1] - c[0] for c in cuts if c[2] == "red" and 12.5 <= c[0] < 16)
+    assert wide_time > 0
+
+
+def test_without_framing_a_roaming_camera_is_never_used_for_a_speaker():
+    cams, masks, _ = _roam_world()
+    assert all(c[2] != "alexa" for c in panel.plan_cut(cams, masks, 40.0, None))
+
+
+def test_roam_framing_maps_each_sample_to_the_person_it_framed(tmp_path):
+    f = tmp_path / "pan.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=25:duration=12",
+                    "-pix_fmt", "yuv420p", str(f)], check=True)
+    cam = panel.Source("alexa", str(f), "camera", {}, start=0.0)
+    seen = []
+    verdicts = ["left", "left", "right", "neither", "both", "right"]    # six samples, 2 s each
+    masks = panel.roam_framing(cam, ["Fred", "Other"], 12.0, 0.0, classify=lambda jpgs, client: seen.append(len(jpgs)) or verdicts)
+    assert seen == [6]
+    at = lambda who, t: bool(masks[who][int(t / panel.HOP)])
+    assert at("Fred", 1) and at("Fred", 3) and not at("Other", 3)
+    assert at("Other", 5) and not at("Fred", 5)
+    assert not at("Fred", 7) and not at("Other", 7)          # 'neither'
+    assert not at("Fred", 9) and not at("Other", 9)          # 'both': the wide is the better shot
+    assert at("Other", 11)
+    with pytest.raises(panel.PanelError):
+        panel.roam_framing(cam, ["only one"], 12.0, 0.0, classify=lambda j, c: [])
+
