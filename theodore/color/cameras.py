@@ -134,6 +134,13 @@ def detect(props: dict, path: str = "") -> dict:
             return {"key": "arri_logc4", "label": f"{cam or 'ARRI'} -- LogC4 / AWG4"}
         if "logc" in gamma.replace(" ", "") or "wide gamut" in gamma:
             return {"key": "arri_logc3", "label": f"{cam or 'ARRI'} -- LogC3 / AWG3 (ISO {p.get('ISO', '?')})"}
+        if not gamma.strip() or gamma.strip() == "project":
+            # Resolve left the gamma blank. Every ARRI recorded flat log: the Alexa 35 records LogC4, all
+            # earlier Alexas (Mini, Mini LF, LF, SXT, Amira) LogC3. Never treat ARRI footage as display-ready.
+            if "35" in cam:
+                return {"key": "arri_logc4", "label": f"{cam} -- LogC4 / AWG4 (assumed: gamma not tagged)"}
+            return {"key": "arri_logc3", "label": f"{cam or 'ARRI'} -- LogC3 / AWG3 (assumed: gamma not tagged, "
+                                                  f"ISO {p.get('ISO', '?')})"}
     if "red" == maker or path.lower().endswith(".r3d") or "redcode" in codec or "r3d" in codec:
         return {"key": "red_log3g10", "label": f"{cam or 'RED'} -- Log3G10 / RED Wide Gamut"}
     if "sony" in maker or "s-log3" in gamma or "slog3" in gamma:
