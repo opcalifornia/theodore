@@ -177,8 +177,8 @@ def test_the_pan_camera_is_used_only_while_it_is_actually_on_the_speaker():
     assert covered(12.5, 16) == 0                    # Fred still talking, pan has left: back to the wide
     assert covered(20, 22) == 0                      # pan hasn't arrived at the other man yet: wide
     assert covered(23, 34) >= 9
-    wide_time = sum(c[1] - c[0] for c in cuts if c[2] == "red" and 12.5 <= c[0] < 16)
-    assert wide_time > 0
+    cam_at = lambda t: next(c[2] for c in cuts if c[0] <= t < c[1])
+    assert cam_at(14) == "red" and cam_at(21) == "red" and cam_at(8) == "alexa" and cam_at(30) == "alexa"
 
 
 def test_without_framing_a_roaming_camera_is_never_used_for_a_speaker():
