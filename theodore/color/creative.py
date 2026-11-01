@@ -105,6 +105,10 @@ class Intent:
     skin_hold: float = 0.6        # how much to protect skin-hue colours from vibrance (0..1)
     shadow_cool: float = 0.010    # chroma of the shadow tint (hue ~ teal-blue)
     highlight_warm: float = 0.013 # chroma of the highlight tint (hue ~ amber)
+    skin_chroma: float = 0.0      # extra richness in skin-hue colours (fraction)
+    skin_glow: float = 0.0        # lightness lift in skin, so faces catch the light (OKLab L)
+    cyan_tame: float = 0.0        # calm bright cyan/aqua light sources so they do not glare (fraction of chroma)
+    highlight_clean: float = 0.0  # keep bright near-neutral areas (sheer curtains, white shirts) clean of stray tint
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -150,6 +154,11 @@ def grade_linear(lin: np.ndarray, intent: Intent, gain: float = 1.0) -> np.ndarr
     ratio = Yd / np.maximum(Y, 1e-6)
     ratio = np.where(Y < 1e-6, 1.0, ratio)
     disp = np.clip(rgb * ratio[:, None], 0, None)                                  # keep colour ratios: no hue shifts
+    return _oklch_color(disp, intent).reshape(shape)
+
+
+def _oklch_color(disp: np.ndarray, intent: Intent) -> np.ndarray:
+    """Display-linear Rec.709 (N,3) in -> display-encoded (gamma 2.4) out: the colour half of the grade."""
     lab = to_oklab(disp)
     L = lab[:, 0]
     C = np.hypot(lab[:, 1], lab[:, 2])
@@ -166,16 +175,23 @@ def grade_linear(lin: np.ndarray, intent: Intent, gain: float = 1.0) -> np.ndarr
     h2 = h + intent.green_shift * green * (1 - skin)
     L2 = L - intent.density * np.maximum(C2 - 0.07, 0) * window                      # saturated colours sit deeper
     L2 = L2 - 0.045 * green * window - 0.03 * blue * window
+    skin_m = _bump(h, 52, 24) * _smooth(C, 0.02, 0.05) * _smooth(L, 0.22, 0.42) * (1 - _smooth(L, 0.86, 0.96))
+    C2 = C2 * (1 + intent.skin_chroma * skin_m)
+    L2 = L2 + intent.skin_glow * skin_m
 
     a2, b2 = C2 * np.cos(np.radians(h2)), C2 * np.sin(np.radians(h2))
     sh = 1 - _smooth(L2, 0.12, 0.45)                                                 # cool quiet shadows
+    sh = sh * (1 - 0.85 * skin_m)                                                    # the cool tint never goes on skin
+    C2 = C2 * (1 - intent.highlight_clean * _smooth(L2, 0.62, 0.80) * (1 - _smooth(C2, 0.03, 0.09)))
+    C2 = C2 * (1 - intent.cyan_tame * _bump(h, 205, 32) * _smooth(L2, 0.5, 0.78))     # tame glaring cyan lights
+    a2, b2 = C2 * np.cos(np.radians(h2)), C2 * np.sin(np.radians(h2))
     hi = _smooth(L2, 0.62, 0.92) * (1 - _smooth(L2, 0.985, 1.0))                     # warm clean highlights
     a2 = a2 + sh * intent.shadow_cool * np.cos(np.radians(235)) + hi * intent.highlight_warm * np.cos(np.radians(75))
     b2 = b2 + sh * intent.shadow_cool * np.sin(np.radians(235)) + hi * intent.highlight_warm * np.sin(np.radians(75))
 
     out = from_oklab(np.stack([L2, a2, b2], axis=1))
     out = np.clip(out, 0, 1)                                                          # (soft gamut handling below)
-    return (np.clip(out, 0, 1) ** (1 / 2.4)).reshape(shape)
+    return np.clip(out, 0, 1) ** (1 / 2.4)
 
 
 def write_cube(path: Path, camera_key: str, intent: Intent, gain: float, size: int = 65,
@@ -184,6 +200,63 @@ def write_cube(path: Path, camera_key: str, intent: Intent, gain: float, size: i
     b, gg, r = np.meshgrid(g, g, g, indexing="ij")
     grid = np.stack([r, gg, b], axis=-1).reshape(-1, 3)
     out = grade_linear(to_linear(camera_key)(grid), intent, gain)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write(f'TITLE "{title}"\nLUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n')
+        fh.writelines(f"{x:.6f} {y:.6f} {z:.6f}\n" for x, y, z in out)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# display-referred entry: footage a camera/Resolve has ALREADY turned into Rec.709
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Tone:
+    """Contrast shaping in DISPLAY space, on luminance only (hues and chroma ride along untouched)."""
+    exposure: float = 0.0      # stops, applied before the curve
+    contrast: float = 0.16     # S-curve strength about mid grey
+    black_in: float = 0.0      # input black point: how much of the camera's lifted floor to pull down
+    black: float = 0.030       # output black level: open enough to hold detail, deep enough to feel rich
+    knee: float = 0.76         # where highlights start to roll off
+    rolloff: float = 1.6       # how softly they roll (higher = softer, more headroom kept)
+    wb: tuple = (1.0, 1.0, 1.0)  # linear RGB white-balance multipliers
+
+
+def _display_tone(Yd: np.ndarray, t: Tone) -> np.ndarray:
+    """Display-encoded luminance in -> display-encoded luminance out."""
+    x = np.clip((np.clip(Yd, 0, 1) - t.black_in) / (1 - t.black_in), 0, 1)
+    x = x + t.contrast * (_smooth(x, 0.0, 1.0) - x)                   # S: deeper shadows, brighter upper mids
+    over = np.maximum(x - t.knee, 0) / max(1 - t.knee, 1e-6)
+    soft = np.tanh(over * t.rolloff) / np.tanh(t.rolloff)
+    x = np.where(x > t.knee, t.knee + (1 - t.knee) * soft, x)         # shoulder: whites stay clean, never clip
+    return t.black + (1 - t.black) * np.clip(x, 0, 1)
+
+
+def grade_display(disp: np.ndarray, intent: Intent, tone: Optional[Tone] = None) -> np.ndarray:
+    """Display-encoded Rec.709 (gamma 2.4) in -> graded display-encoded out, 0..1. Same colour science as
+    grade_linear, but the tone is shaped in display space because the picture is already display-referred."""
+    tone = tone or Tone()
+    shape = disp.shape
+    lin = np.clip(disp.reshape(-1, 3), 0, 1) ** 2.4
+    lin = lin * (2.0 ** tone.exposure) * np.array(tone.wb)
+    Y = lin @ np.array([0.2126, 0.7152, 0.0722])
+    Yd_in = np.clip(Y, 0, 1) ** (1 / 2.4)
+    Yd_out = _display_tone(Yd_in, tone)
+    Y_out = Yd_out ** 2.4
+    ratio = np.where(Y > 1e-6, Y_out / np.maximum(Y, 1e-6), 1.0)
+    graded = np.clip(lin * ratio[:, None], 0, None)                   # luminance-ratio: hue and chroma preserved
+    return _oklch_color(graded, intent).reshape(shape)
+
+
+def write_cube_display(path: Path, pre: Callable[[np.ndarray], np.ndarray], intent: Intent, tone: Tone,
+                       size: int = 65, title: str = "Theodore display grade") -> Path:
+    """A 3D LUT whose input is what Resolve hands node 1 (`pre` turns it into display Rec.709, e.g. ARRI's own
+    LogC3 LUT; identity for footage already in Rec.709) and whose output is the finished look."""
+    g = np.linspace(0, 1, size)
+    b, gg, r = np.meshgrid(g, g, g, indexing="ij")
+    grid = np.stack([r, gg, b], axis=-1).reshape(-1, 3)
+    out = grade_display(np.clip(pre(grid), 0, 1), intent, tone)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as fh:
         fh.write(f'TITLE "{title}"\nLUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n')
