@@ -221,6 +221,8 @@ class Tone:
     knee: float = 0.76         # where highlights start to roll off
     rolloff: float = 1.6       # how softly they roll (higher = softer, more headroom kept)
     wb: tuple = (1.0, 1.0, 1.0)  # linear RGB white-balance multipliers
+    veil: float = 0.0          # a faint warm light in the shadows, scene-linear (0.001 is already clearly visible)
+    veil_tint: tuple = (1.0, 0.85, 0.70)
 
 
 def _display_tone(Yd: np.ndarray, t: Tone) -> np.ndarray:
@@ -246,7 +248,13 @@ def grade_display(disp: np.ndarray, intent: Intent, tone: Optional[Tone] = None)
     Y_out = Yd_out ** 2.4
     ratio = np.where(Y > 1e-6, Y_out / np.maximum(Y, 1e-6), 1.0)
     graded = np.clip(lin * ratio[:, None], 0, None)                   # luminance-ratio: hue and chroma preserved
-    return _oklch_color(graded, intent).reshape(shape)
+    out = _oklch_color(graded, intent)
+    if tone.veil:
+        lin_out = np.clip(out, 0, 1) ** 2.4
+        Yo = np.clip(lin_out @ np.array([0.2126, 0.7152, 0.0722]), 0, 1)
+        lin_out = lin_out + tone.veil * np.array(tone.veil_tint) * ((1 - Yo) ** 2.5)[:, None]   # fades out by mid grey
+        out = np.clip(lin_out, 0, 1) ** (1 / 2.4)
+    return out.reshape(shape)
 
 
 def write_cube_display(path: Path, pre: Callable[[np.ndarray], np.ndarray], intent: Intent, tone: Tone,

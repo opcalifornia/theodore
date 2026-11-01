@@ -52,3 +52,16 @@ def test_look_cube_is_valid_and_keeps_neutral_greys_neutral(tmp_path):
     out = creative.grade_display(grey, tc.HOLLYWOOD[0], tc.HOLLYWOOD[1])
     assert np.abs(out - out.mean(1, keepdims=True)).max() < 0.04              # greys stay (nearly) neutral
     assert (np.diff(out[:, 1]) > 0).all()                                      # and the tone curve is monotonic
+
+
+def test_the_veil_only_touches_the_shadows_and_lifts_them_warm():
+    from theodore.color import creative
+    intent, tone = tc.HOLLYWOOD
+    from dataclasses import replace
+    veiled = replace(tone, veil=0.0012)
+    grey = np.linspace(0.0, 1.0, 11)[:, None].repeat(3, 1)
+    a, b = creative.grade_display(grey, intent, tone), creative.grade_display(grey, intent, veiled)
+    assert (b[:3] > a[:3]).all()                                           # the darkest tones get lifted
+    assert np.abs(b[7:] - a[7:]).max() < 0.004                             # the highlights do not move
+    assert (b[0, 0] - a[0, 0]) > (b[0, 2] - a[0, 2])                       # warm: red lifts more than blue
+    assert b[0, 1] - a[0, 1] < 0.08                                        # and it is a veil, not milk
