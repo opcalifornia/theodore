@@ -131,3 +131,22 @@ def test_a_long_wide_cuts_away_to_the_people_in_the_room_but_the_opening_wide_st
     assert len([x for x in cuts if "cutaway" in x[3]]) >= 4
     assert cuts[0][2] == "wide" and cuts[0][1] >= 3 and cuts[-1][2] == "wide"
     assert max(x[1] - x[0] for x in cuts if x[2] == "wide") <= 14
+
+
+def test_people_are_paired_with_mics_by_file_name_not_the_order_resolve_lists_them(monkeypatch):
+    seen = {}
+
+    class Clip:
+        def __init__(self, path): self.path = path
+        def GetClipProperty(self, k): return self.path
+        def GetName(self): return self.path
+
+    from theodore.edit import interview
+    pool = {"Cams": [Clip("/m/cam1.mp4")], "Lavs": [Clip("/m/Headset-3.wav"), Clip("/m/Headset-0.wav"),
+                                                   Clip("/m/Headset-1.wav")]}
+    monkeypatch.setattr(interview, "find_clips", lambda h, names, bin_name: pool[bin_name])
+    monkeypatch.setattr(panel, "build_plan", lambda cams, lavs, **kw: seen.update(lavs=lavs) or "plan")
+    monkeypatch.setattr(panel, "import_to_resolve", lambda h, plan, name: {"timeline": name})
+    monkeypatch.setattr(panel, "summary", lambda plan: {})
+    panel.multicam_from_bins(None, camera_bin="Cams", lav_bin="Lavs", people=["A", "B", "D"], preview=False)
+    assert [p.split("/")[-1] for p in seen["lavs"]] == ["Headset-0.wav", "Headset-1.wav", "Headset-3.wav"]

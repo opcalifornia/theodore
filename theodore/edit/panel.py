@@ -590,7 +590,9 @@ def multicam_from_bins(h, *, camera_bin=None, cameras=None, lav_bin=None, lavs=N
         lav_clips = interview.find_clips(h, lavs, lav_bin) if (lavs or lav_bin) else []
     except interview.InterviewError as exc:
         raise PanelError(str(exc))
-    paths = lambda clips: [c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")]
+    # Resolve lists bin clips in its own order; pair people with mics by file name, never by position.
+    paths = lambda clips: sorted((c.GetClipProperty("File Path") for c in clips if c.GetClipProperty("File Path")),
+                                 key=lambda p: Path(p).name.lower())
     plan = build_plan(paths(cams), paths(lav_clips), people=people, mapping=camera_for, wide=wide)
     made = {**import_to_resolve(h, plan, name), **summary(plan)}
     if preview:
