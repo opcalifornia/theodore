@@ -619,8 +619,9 @@ def to_fcpxml(plan: PanelPlan, name: str) -> str:
             rid = f"a{n}"
             refs[(src.name, k)] = rid
             info = sp["info"]
-            attrs = {"id": rid, "name": sp.get("name") or src.name, "start": _ts(Fraction(sp["tc"])),
-                     "duration": _ts(_frames(sp["duration"], Fraction(info["fps"]) if info["has_video"] else fps)),
+            attrs = {"id": rid, "name": sp.get("name") or src.name, "start": _ts(Fraction(sp.get("asset_tc", sp["tc"]))),
+                     "duration": _ts(_frames(sp.get("asset_duration", sp["duration"]),
+                                             Fraction(info["fps"]) if info["has_video"] else fps)),
                      "hasAudio": "1" if info["has_audio"] else "0", "audioSources": "1",
                      "audioChannels": str(info["channels"]), "audioRate": str(info["sample_rate"])}
             if info["has_video"]:
@@ -640,9 +641,19 @@ def to_fcpxml(plan: PanelPlan, name: str) -> str:
             if off > cursor:
                 ET.SubElement(angle, "gap", {"name": "Gap", "offset": _ts(cursor), "start": "0s", "duration": _ts(off - cursor)})
             dur = _frames(sp["duration"], fps)
-            ET.SubElement(angle, "asset-clip", {"ref": refs[(cam.name, j)], "offset": _ts(off), "name": sp.get("name") or cam.name,
-                                                 "start": _ts(Fraction(sp["tc"])), "duration": _ts(dur),
-                                                 "format": fmt(sp["info"]), "tcFormat": "NDF"})
+            el = ET.SubElement(angle, "asset-clip", {"ref": refs[(cam.name, j)], "offset": _ts(off), "name": sp.get("name") or cam.name,
+                                                      "start": _ts(Fraction(sp["tc"])), "duration": _ts(dur),
+                                                      "format": fmt(sp["info"]), "tcFormat": "NDF"})
+            # A camera whose own rate differs from the timeline's (24 fps in a 23.976 timeline) must be conformed to
+            # REAL time, as Resolve does when you drop it on a timeline: it is played faster by the ratio of the
+            # rates, so frame n still lands at n/rate seconds. Played frame for frame it falls ~0.1% behind the sound
+            # (1.7 s over 28 minutes).
+            ratio = Fraction(sp["info"]["fps"]) / Fraction(fps)
+            if sp["info"]["has_video"] and abs(float(ratio) - 1) > 1e-4:
+                tm = ET.SubElement(el, "timeMap")
+                tc0 = Fraction(sp["tc"])
+                ET.SubElement(tm, "timept", {"time": "0s", "value": _ts(tc0), "interp": "linear"})
+                ET.SubElement(tm, "timept", {"time": _ts(dur), "value": _ts(tc0 + dur * ratio), "interp": "linear"})
             cursor = off + dur
     lib = ET.SubElement(root, "library")
     event = ET.SubElement(lib, "event", {"name": name})

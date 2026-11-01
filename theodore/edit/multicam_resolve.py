@@ -48,23 +48,21 @@ def read_part(item, base_frame: int, tl_fps: Fraction, video: bool) -> dict:
         raise MulticamError(f"{item.GetName()} has no media pool clip.")
     props = mp.GetClipProperty() or {}
     fps = _fps(props.get("FPS") or float(tl_fps))
-    if video:
-        # Resolve reports a clip at the PROJECT's rate once it is conformed (the Alexa's 24 fps files read as
-        # 23.976). The file's own rate is the truth: using the conformed one drifts the picture ~0.1% (1.7 s over
-        # 28 minutes) against the sound.
-        real = _file_fps(props.get("File Path"))
-        if real:
-            fps = real
     start = Fraction(item.GetStart() - base_frame) / tl_fps
     dur = Fraction(item.GetEnd() - item.GetStart()) / tl_fps
     offset = Fraction(item.GetLeftOffset() or 0) / fps          # trimmed in: the file's own position
-    tc = _tc_seconds(props.get("Start TC") or "00:00:00:00", fps) + offset
+    clip_tc = _tc_seconds(props.get("Start TC") or "00:00:00:00", fps)
+    tc = clip_tc + offset
+    total = Fraction(int(float(props.get("Frames") or 0))) / fps if props.get("Frames") else dur
     res = (props.get("Resolution") or "0x0").lower().split("x")
     ch = int(props.get("Audio Ch") or 0)
     info = {"duration": float(dur), "has_video": video, "has_audio": ch > 0, "fps": fps,
             "width": int(res[0]) if video else 0, "height": int(res[1]) if video else 0,
             "channels": max(ch, 1), "sample_rate": int(float(props.get("Sample Rate") or 48000))}
+    # asset_duration / asset_tc describe the WHOLE clip as Resolve knows it (that is how it recognises the clip it
+    # already has); duration / tc describe the stretch used on the timeline.
     return {"path": props.get("File Path"), "start": float(start), "duration": float(dur), "tc": float(tc),
+            "asset_tc": float(clip_tc), "asset_duration": float(total),
             "info": info, "name": item.GetName(), "mpi": mp, "left": int(item.GetLeftOffset() or 0),
             "clip_fps": float(fps)}
 
@@ -172,6 +170,8 @@ def _import_plan(h, plan, name: str, mics: dict, multicam_name: Optional[str]) -
     plan.attach_lavs = False        # the mics are placed below, on their own tracks
     pool.SetCurrentFolder(timelines)
     try:
+        # Resolve will not link an FCPXML multicam to the clips already in the project (it shows Media Offline),
+        # so the sources come in with it; they are filed in the Multicam bin.
         made = panel.import_to_resolve(h, plan, name, import_sources=True)
     finally:
         pool.SetCurrentFolder(root)

@@ -267,3 +267,19 @@ def test_a_stretch_with_no_picture_at_all_is_left_out_and_the_sound_stays_in_syn
     src = lambda c: float(Fraction(c.get("start").rstrip("s")))
     assert src(lavs[0]) == pytest.approx(10, abs=0.05)      # picture starts 10 s in: lav part 1 from its 10 s
     assert src(lavs[1]) == pytest.approx(10, abs=0.05)      # 50 s on the clock = 10 s into lav part 2 (which starts at 40)
+
+
+def test_a_24p_camera_in_a_23976_timeline_is_conformed_to_real_time():
+    import xml.etree.ElementTree as ET
+    fps = Fraction(24000, 1001)
+    red = panel.Source("red", "r", "camera", _info(), role="wide", parts=[_part("/m/r.R3D", 0, 100)])
+    alexa = panel.Source("alexa", "a", "camera", _info(fps=Fraction(24)), role="roam",
+                         parts=[_part("/m/a.mxf", 1, 90, tc=500.0, fps=Fraction(24))])
+    plan = panel.PanelPlan([red, alexa], [], fps, 100.0, 0.0, cuts=[(0.0, 100.0, "red", "x")])
+    root = ET.fromstring(panel.to_fcpxml(plan, "t").split("\n", 2)[2])
+    clips = {c.get("name"): c for c in root.iter("asset-clip")}
+    assert clips["r.R3D"].find("timeMap") is None                     # same rate as the timeline: untouched
+    pts = clips["a.mxf"].find("timeMap").findall("timept")
+    span = lambda e: Fraction(e.get("value").rstrip("s")) - Fraction(500)
+    out = Fraction(pts[1].get("time").rstrip("s"))
+    assert span(pts[1]) / out == pytest.approx(float(Fraction(24) / fps), rel=1e-6)   # 1.001x
