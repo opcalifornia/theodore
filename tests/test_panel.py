@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -204,3 +205,65 @@ def test_roam_framing_maps_each_sample_to_the_person_it_framed(tmp_path):
     with pytest.raises(panel.PanelError):
         panel.roam_framing(cam, ["only one"], 12.0, 0.0, classify=lambda j, c: [])
 
+
+
+def _info(fps=Fraction(24000, 1001), video=True, audio=True, w=8192, h=4320):
+    return {"duration": 0, "has_video": video, "has_audio": audio, "fps": fps, "width": w if video else 0,
+            "height": h if video else 0, "channels": 2, "sample_rate": 48000}
+
+
+def _part(path, start, duration, tc=0.0, video=True, fps=Fraction(24000, 1001)):
+    return {"path": path, "start": start, "duration": duration, "tc": tc, "name": path.split("/")[-1],
+            "info": {**_info(fps, video), "duration": duration}}
+
+
+def test_follow_framing_arrives_late_and_ignores_interjections():
+    m = np.zeros(int(30 / panel.HOP), bool)
+    m[int(5 / panel.HOP):int(15 / panel.HOP)] = True        # a real turn
+    m[int(20 / panel.HOP):int(20.8 / panel.HOP)] = True     # a short 'mm-hm'
+    f = panel.follow_framing({"A": m})["A"]
+    at = lambda t: bool(f[int(t / panel.HOP)])
+    assert not at(5.5) and at(6.5) and at(15.3) and not at(16.0)      # moving, then on them, a beat after they stop
+    assert not f[int(20 / panel.HOP):int(22 / panel.HOP)].any()
+
+
+def test_cameras_with_gaps_are_never_cut_to_where_they_have_no_picture():
+    n = int(60 / panel.HOP)
+    cams = [panel.Source("red", "r", "camera", _info(), role="wide", parts=[
+                _part("r1", 0, 20), _part("r2", 30, 30)]),
+            panel.Source("alexa", "a", "camera", _info(fps=Fraction(24)), role="roam", parts=[_part("a1", 5, 50)])]
+    avail = panel.availability(cams, 60.0, 0.0)
+    talk = np.zeros(n, bool); talk[int(8 / panel.HOP):int(55 / panel.HOP)] = True
+    framing = {"A": panel.follow_framing({"A": talk})["A"] & avail["alexa"]}
+    cuts = panel.plan_cut_available(cams, {"A": talk}, 60.0, framing, avail)
+    for a, b, cam, _ in cuts:
+        mid = int(((a + b) / 2) / panel.HOP)
+        assert avail[cam][mid], (a, b, cam)
+    assert min(c[0] for c in cuts) == 0 and max(c[1] for c in cuts) == pytest.approx(60.0, abs=0.1)
+    assert not any(a < 22 and b > 28 and cam == "red" for a, b, cam, _ in cuts)   # nothing from the 20-30 s hole in red... unless alexa covers it
+    assert any(cam == "alexa" and a < 28 and b > 22 for a, b, cam, _ in cuts)       # the Alexa covers the red gap
+
+
+def test_a_stretch_with_no_picture_at_all_is_left_out_and_the_sound_stays_in_sync():
+    import xml.etree.ElementTree as ET
+    fps = Fraction(24000, 1001)
+    red = panel.Source("red", "r", "camera", _info(), role="wide",
+                       parts=[_part("/m/r1.R3D", 10, 20, tc=1757.0), _part("/m/r2.R3D", 50, 20, tc=4087.0)])
+    lav = panel.Source("lav", "l", "lav", _info(video=False), person="A",
+                       parts=[_part("/m/l1.wav", 0, 40, video=False), _part("/m/l2.wav", 40, 40, video=False)])
+    plan = panel.PanelPlan([red], [lav], fps, 80.0, 0.0, cuts=[(10.0, 30.0, "red", "a"), (50.0, 70.0, "red", "b")])
+    root = ET.fromstring(panel.to_fcpxml(plan, "t").split("\n", 2)[2])
+    assets = {a.get("id"): a for a in root.iter("asset")}
+    assert len(assets) == 4
+    tc = next(a for a in assets.values() if a.get("name") == "r1.R3D").get("start")
+    assert Fraction(tc.rstrip("s")) == 1757                                               # source timecode kept
+    angle = root.find(".//mc-angle")
+    assert [c.tag for c in angle] == ["gap", "asset-clip", "gap", "asset-clip"]          # leading gap, hole, clips
+    clips = root.findall(".//spine/mc-clip")
+    assert len(clips) == 2 and Fraction(clips[1].get("offset")[:-1]) - Fraction(clips[0].get("offset")[:-1]) == \
+        pytest.approx(float(Fraction(clips[0].get("duration")[:-1])), abs=0.05)            # the 20 s hole is closed up
+    lavs = [c for c in root.iter("asset-clip") if c.get("lane")]
+    assert len(lavs) == 2                       # one mic clip per stretch of picture, each at its own spot
+    src = lambda c: float(Fraction(c.get("start").rstrip("s")))
+    assert src(lavs[0]) == pytest.approx(10, abs=0.05)      # picture starts 10 s in: lav part 1 from its 10 s
+    assert src(lavs[1]) == pytest.approx(10, abs=0.05)      # 50 s on the clock = 10 s into lav part 2 (which starts at 40)

@@ -20,6 +20,7 @@ timecode on an indie shoot, so everything is lined up from the sound itself:
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -99,6 +100,16 @@ class Source:
     confidence: float = 1.0
     person: Optional[str] = None
     role: Optional[str] = None   # wide | close | roam (pans between people)
+    parts: Optional[list] = None  # several clips on one camera/mic: [{path, start, duration, tc, info, name}]
+    tc: float = 0.0              # the file's own start timecode, in seconds
+
+
+def spans(src: "Source") -> list[dict]:
+    """The clips behind a camera or mic, on the shared clock: {path, start, duration, tc, info, name}."""
+    if src.parts:
+        return sorted(src.parts, key=lambda p: p["start"])
+    return [{"path": src.path, "start": src.start, "duration": src.info["duration"], "tc": src.tc, "info": src.info,
+             "name": src.name}]
 
 
 @dataclass
@@ -111,6 +122,8 @@ class PanelPlan:
     cuts: list = field(default_factory=list)      # (start, end, camera name, why) on the shared clock
     speech: dict = field(default_factory=dict)    # person -> [(start, end)]
     notes: list = field(default_factory=list)
+    size: Optional[tuple] = None                  # timeline (width, height); default the first camera's
+    attach_lavs: bool = True                      # False: the caller places the mics itself, on tracks of its choosing
 
 
 def sync(cameras: list[Source], lavs: list[Source], window: float = 240.0) -> list[str]:
@@ -144,16 +157,16 @@ def activity(lavs: list[Source], length: float, origin: float) -> dict[str, np.n
     frames = int(np.ceil(length / HOP))
     levels = {}
     for s in lavs:
-        x = _audio(s.path)
-        hop = int(HOP * SR)
-        rms = np.sqrt(np.add.reduceat(x[: len(x) // hop * hop] ** 2, np.arange(0, len(x) // hop * hop, hop)) / hop)
-        db = 20 * np.log10(rms + 1e-6)
-        out = np.full(frames, -120.0)
-        first = int(round((s.start - origin) / HOP))
-        lo, hi = max(first, 0), min(first + len(db), frames)
-        if hi > lo:
-            out[lo:hi] = db[lo - first: hi - first]
-        levels[s.person or s.name] = out
+        out = levels.setdefault(s.person or s.name, np.full(frames, -120.0))
+        for sp in spans(s):
+            x = _audio(sp["path"])
+            hop = int(HOP * SR)
+            rms = np.sqrt(np.add.reduceat(x[: len(x) // hop * hop] ** 2, np.arange(0, len(x) // hop * hop, hop)) / hop)
+            db = 20 * np.log10(rms + 1e-6)
+            first = int(round((sp["start"] - origin) / HOP))
+            lo, hi = max(first, 0), min(first + len(db), frames)
+            if hi > lo:
+                out[lo:hi] = np.maximum(out[lo:hi], db[lo - first: hi - first])
     names = list(levels)
     stack = np.stack([levels[n] for n in names])
     floor = np.percentile(stack, 20, axis=1, keepdims=True)
@@ -421,9 +434,139 @@ def roam_framing(cam: Source, left_to_right: list[str], length: float, origin: f
     return masks
 
 
+SETTLE = 1.2   # a camera that follows the speaker has arrived on them this long after they start
+HOLD = 0.6     # ...and stays on them a moment after they stop
+
+
+def follow_framing(masks: dict, settle: float = SETTLE, hold: float = HOLD) -> dict:
+    """For a camera whose operator pans to whoever speaks: person -> mask of when it is on them. It is not
+    there yet at the start of each turn (it is moving), so short interjections never get that camera."""
+    out = {}
+    for who, m in masks.items():
+        f = np.zeros(len(m), bool)
+        for lo, hi in _runs(m):
+            start = lo + int(round(settle / HOP))
+            if start < hi:
+                f[start:min(hi + int(round(hold / HOP)), len(f))] = True
+        out[who] = f
+    return out
+
+
+def availability(cams: list, length: float, origin: float) -> dict:
+    """camera name -> mask (HOP) of when it has picture on the shared clock."""
+    n = int(np.ceil(length / HOP))
+    out = {}
+    for c in cams:
+        m = np.zeros(n, bool)
+        for sp in spans(c):
+            lo = max(int(round((sp["start"] - origin) / HOP)), 0)
+            hi = min(int(round((sp["start"] + sp["duration"] - origin) / HOP)), n)
+            if hi > lo:
+                m[lo:hi] = True
+        out[c.name] = m
+    return out
+
+
+def plan_cut_available(cameras: list, masks: dict, length: float, framing: Optional[dict] = None,
+                       available: Optional[dict] = None) -> list[tuple]:
+    """plan_cut for a shoot where cameras have gaps: stretches with no picture at all are left out, and where
+    only one camera has picture the cut uses that one. Times are relative to the shared-clock origin."""
+    if not available:
+        return plan_cut(cameras, masks, length, framing)
+    n = int(np.ceil(length / HOP))
+    any_pic = np.zeros(n, bool)
+    for m in available.values():
+        any_pic |= m[:n]
+    out: list[tuple] = []
+    for lo, hi in _runs(any_pic):
+        if (hi - lo) * HOP < MIN_SHOT:
+            continue
+        sl = slice(lo, hi)
+        sub_masks = {p: m[sl] for p, m in masks.items()}
+        sub_framing = {p: m[sl] for p, m in framing.items()} if framing else None
+        have = [c for c in cameras if available[c.name][sl].any()]
+        sub = plan_cut(have, sub_masks, (hi - lo) * HOP, sub_framing)
+        out += _repair([(a + lo * HOP, b + lo * HOP, cam, why) for a, b, cam, why in sub], available, cameras)
+    return out
+
+
+def _repair(cuts: list, available: dict, cameras: list) -> list:
+    """Wherever a cut's camera has no picture, show one that does."""
+    order = [c.name for c in sorted(cameras, key=lambda c: {"wide": 0, "roam": 1}.get(c.role, 2))]
+    fixed = []
+    for a, b, cam, why in cuts:
+        ia, ib = int(round(a / HOP)), int(round(b / HOP))
+        mask = available[cam][ia:ib]
+        if mask.all():
+            fixed.append((a, b, cam, why))
+            continue
+        pos = ia
+        for on, group in itertools.groupby(mask):
+            n = len(list(group))
+            lo, hi = pos, pos + n
+            pos = hi
+            if on:
+                fixed.append((lo * HOP, hi * HOP, cam, why))
+                continue
+            sub = next((c for c in order if c != cam and available[c][lo:hi].all()), None)
+            if sub:
+                fixed.append((lo * HOP, hi * HOP, sub, f"{cam} has no picture here"))
+    merged: list = []
+    for a, b, cam, why in fixed:
+        if merged and merged[-1][2] == cam and abs(merged[-1][1] - a) < 1e-6:
+            merged[-1] = (merged[-1][0], b, cam, merged[-1][3])
+        elif b - a > 1e-6:
+            merged.append((a, b, cam, why))
+    return merged
+
+
+def plan_from_sources(cams: list, lavs: list, *, mapping: Optional[dict] = None, wide: Optional[str] = None,
+                      roam: Optional[str] = None, left_to_right: Optional[list] = None, framer=None,
+                      follow: bool = False, notes: Optional[list] = None, size: Optional[tuple] = None) -> PanelPlan:
+    """The cut, from cameras and mics whose position on the shared clock is already known (each Source has
+    its `start`, or its `parts`)."""
+    if not cams:
+        raise PanelError("Need at least one camera.")
+    every = [sp for s in cams + lavs for sp in spans(s)]
+    origin = min(sp["start"] for sp in every)
+    length = max(sp["start"] + sp["duration"] for sp in every) - origin
+    masks = activity(lavs, length, origin) if lavs else {}
+    roam_cam = None
+    if roam:
+        roam_cam = next((c for c in cams if roam.lower() in c.name.lower()), None)
+        if roam_cam is None:
+            raise PanelError(f"No camera matches roam={roam!r}.")
+        roam_cam.role, roam_cam.person = "roam", None
+    found = assign_people(cams, masks, length, origin, mapping, wide)
+    wide_cam = next((c for c in cams if c.role == "wide"), cams[0])
+    fps = wide_cam.info["fps"]
+    plan = PanelPlan(cams, lavs, fps, length, origin, notes=list(notes or []) + found, size=size)
+    plan.speech = {p: [(a * HOP + origin, b * HOP + origin) for a, b in _runs(m)] for p, m in masks.items()}
+    avail = availability(cams, length, origin)
+    framing = None
+    if roam_cam is not None:
+        if follow:
+            framing = follow_framing(masks)
+        else:
+            if not left_to_right or any(p not in masks for p in left_to_right):
+                raise PanelError("Roaming camera: give left_to_right as the two people's names (as the lavs are named).")
+            framing = (framer or roam_framing)(roam_cam, left_to_right, length, origin)
+        framing = {p: m & avail[roam_cam.name][:len(m)] for p, m in framing.items()}
+        talk = sum(int(m.sum()) for m in masks.values()) or 1
+        on_them = sum(int((masks[p] & framing[p]).sum()) for p in framing if p in masks)
+        plan.notes.append(f"The roaming camera ({roam_cam.name}) is on the speaker for about {on_them * 100 // talk}% of the "
+                          "talking; the wide covers the rest.")
+    cuts = plan_cut_available(cams, masks, length, framing, avail)
+    plan.cuts = [(a + origin, b + origin, cam, why) for a, b, cam, why in cuts if b - a > 1 / float(fps)]
+    for s in cams + lavs:
+        if s.confidence < 0.2:
+            plan.notes.append(f"Sync for {s.name} is uncertain (confidence {s.confidence:.2f}) -- check it.")
+    return plan
+
+
 def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optional[list[str]] = None,
                mapping: Optional[dict] = None, wide: Optional[str] = None, roam: Optional[str] = None,
-               left_to_right: Optional[list[str]] = None, framer=None) -> PanelPlan:
+               left_to_right: Optional[list[str]] = None, framer=None, follow: bool = False) -> PanelPlan:
     cams = [Source(Path(p).stem, p, "camera", _probe(p)) for p in camera_paths]
     lavs = [Source(Path(p).stem, p, "lav", _probe(p)) for p in lav_paths]
     if not cams:
@@ -432,46 +575,8 @@ def build_plan(camera_paths: list[str], lav_paths: list[str], *, people: Optiona
         lav.person = (people[i] if people and i < len(people) else
                       lav.name.replace("LAV_", "").replace("lav_", "").replace("_", " ").strip() or f"Speaker {i + 1}")
     sync_notes = sync(cams, lavs)
-    origin = min(s.start for s in cams + lavs)
-    end = max(s.start + s.info["duration"] for s in cams)
-    start_all = max(s.start for s in cams)          # every camera rolling from here
-    length = end - origin
-    masks = activity(lavs, length, origin) if lavs else {}
-    roam_cam = None
-    if roam:
-        roam_cam = next((c for c in cams if roam.lower() in c.name.lower()), None)
-        if roam_cam is None:
-            raise PanelError(f"No camera matches roam={roam!r}.")
-        roam_cam.role, roam_cam.person = "roam", None
-    notes = assign_people(cams, masks, length, origin, mapping, wide)
-    fps = cams[0].info["fps"]
-    plan = PanelPlan(cams, lavs, fps, length, origin, notes=sync_notes + notes)
-    plan.speech = {p: [(a * HOP + origin, b * HOP + origin) for a, b in _runs(m)] for p, m in masks.items()}
-    framing = None
-    if roam_cam is not None:
-        if not left_to_right or any(p not in masks for p in left_to_right):
-            raise PanelError("Roaming camera: give left_to_right as the two people's names (as the lavs are named).")
-        framing = (framer or roam_framing)(roam_cam, left_to_right, length, origin)
-        talk = sum(int(masks[p].sum()) for p in left_to_right) or 1
-        on_them = sum(int((masks[p] & framing[p]).sum()) for p in left_to_right)
-        plan.notes.append(f"The roaming camera ({roam_cam.name}) was on whoever was talking {on_them * 100 // talk}% of "
-                          "the time; the wide covers the rest.")
-    cuts = plan_cut(cams, masks, length, framing)
-    lo = start_all - origin
-    hi = min(s.start + s.info["duration"] for s in cams) - origin
-    clipped = [(max(a, lo) + origin, min(b, hi) + origin, cam, why) for a, b, cam, why in cuts
-               if min(b, hi) - max(a, lo) > 1 / float(fps)]
-    merged = []
-    for a, b, cam, why in clipped:   # same angle twice in a row is one shot
-        if merged and merged[-1][2] == cam:
-            merged[-1] = (merged[-1][0], b, cam, merged[-1][3])
-        else:
-            merged.append((a, b, cam, why))
-    plan.cuts = merged
-    for s in cams + lavs:
-        if s.confidence < 0.2:
-            plan.notes.append(f"Sync for {s.name} is uncertain (confidence {s.confidence:.2f}) -- check it.")
-    return plan
+    return plan_from_sources(cams, lavs, mapping=mapping, wide=wide, roam=roam, left_to_right=left_to_right,
+                             framer=framer, follow=follow, notes=sync_notes)
 
 
 # ---------------------------------------------------------------------------
@@ -490,79 +595,110 @@ def _ts(v: Fraction) -> str:
 def to_fcpxml(plan: PanelPlan, name: str) -> str:
     fps = plan.fps
     cam0 = plan.cameras[0].info
+    size = plan.size or (cam0["width"] or 1920, cam0["height"] or 1080)
     root = ET.Element("fcpxml", {"version": "1.10"})
     res = ET.SubElement(root, "resources")
-    ET.SubElement(res, "format", {"id": "r0", "frameDuration": _ts(1 / fps), "width": str(cam0["width"] or 1920),
-                                  "height": str(cam0["height"] or 1080)})
-    refs = {}
-    for n, s in enumerate(plan.cameras + plan.lavs, 1):
-        rid = f"a{n}"
-        refs[s.name] = rid
-        attrs = {"id": rid, "name": s.name, "start": "0s", "duration": _ts(_frames(s.info["duration"], fps)),
-                 "hasAudio": "1" if s.info["has_audio"] else "0", "audioSources": "1",
-                 "audioChannels": str(s.info["channels"]), "audioRate": str(s.info["sample_rate"])}
-        if s.info["has_video"]:
-            attrs.update({"hasVideo": "1", "format": "r0"})
-        asset = ET.SubElement(res, "asset", attrs)
-        ET.SubElement(asset, "media-rep", {"kind": "original-media", "src": Path(s.path).resolve().as_uri()})
+    ET.SubElement(res, "format", {"id": "r0", "frameDuration": _ts(1 / fps), "width": str(size[0]), "height": str(size[1])})
+    formats: dict = {}
+
+    def fmt(info) -> str:
+        key = (Fraction(info["fps"]), info["width"], info["height"])
+        if key == (Fraction(fps), size[0], size[1]):
+            return "r0"
+        if key not in formats:
+            formats[key] = f"f{len(formats) + 1}"
+            ET.SubElement(res, "format", {"id": formats[key], "frameDuration": _ts(1 / Fraction(info["fps"])),
+                                          "width": str(info["width"] or size[0]), "height": str(info["height"] or size[1])})
+        return formats[key]
+
+    refs: dict = {}      # (source name, part index) -> asset id
+    n = 0
+    for src in plan.cameras + plan.lavs:
+        for k, sp in enumerate(spans(src)):
+            n += 1
+            rid = f"a{n}"
+            refs[(src.name, k)] = rid
+            info = sp["info"]
+            attrs = {"id": rid, "name": sp.get("name") or src.name, "start": _ts(Fraction(sp["tc"])),
+                     "duration": _ts(_frames(sp["duration"], Fraction(info["fps"]) if info["has_video"] else fps)),
+                     "hasAudio": "1" if info["has_audio"] else "0", "audioSources": "1",
+                     "audioChannels": str(info["channels"]), "audioRate": str(info["sample_rate"])}
+            if info["has_video"]:
+                attrs.update({"hasVideo": "1", "format": fmt(info)})
+            asset = ET.SubElement(res, "asset", attrs)
+            ET.SubElement(asset, "media-rep", {"kind": "original-media", "src": Path(sp["path"]).resolve().as_uri()})
     media = ET.SubElement(res, "media", {"id": "mc1", "name": f"{name} Multicam"})
     mc = ET.SubElement(media, "multicam", {"format": "r0", "tcStart": "0s", "tcFormat": "NDF"})
     angle_ids = {}
-    for n, cam in enumerate(plan.cameras, 1):
-        aid = f"angle{n}"
+    for k, cam in enumerate(plan.cameras, 1):
+        aid = f"angle{k}"
         angle_ids[cam.name] = aid
         angle = ET.SubElement(mc, "mc-angle", {"name": cam.name, "angleID": aid})
-        off = _frames(cam.start - plan.origin, fps)
-        if off > 0:
-            ET.SubElement(angle, "gap", {"name": "Gap", "offset": "0s", "start": "0s", "duration": _ts(off)})
-        ET.SubElement(angle, "asset-clip", {"ref": refs[cam.name], "offset": _ts(off), "name": cam.name,
-                                             "start": "0s", "duration": _ts(_frames(cam.info["duration"], fps)),
-                                             "format": "r0", "tcFormat": "NDF"})
+        cursor = Fraction(0)
+        for j, sp in enumerate(spans(cam)):
+            off = _frames(sp["start"] - plan.origin, fps)
+            if off > cursor:
+                ET.SubElement(angle, "gap", {"name": "Gap", "offset": _ts(cursor), "start": "0s", "duration": _ts(off - cursor)})
+            dur = _frames(sp["duration"], fps)
+            ET.SubElement(angle, "asset-clip", {"ref": refs[(cam.name, j)], "offset": _ts(off), "name": sp.get("name") or cam.name,
+                                                 "start": _ts(Fraction(sp["tc"])), "duration": _ts(dur),
+                                                 "format": fmt(sp["info"]), "tcFormat": "NDF"})
+            cursor = off + dur
     lib = ET.SubElement(root, "library")
     event = ET.SubElement(lib, "event", {"name": name})
     project = ET.SubElement(event, "project", {"name": name})
-    total = _frames(plan.cuts[-1][1] - plan.cuts[0][0], fps) if plan.cuts else Fraction(0)
-    seq = ET.SubElement(project, "sequence", {"format": "r0", "duration": _ts(total), "tcStart": "3600/1s",
+    seq = ET.SubElement(project, "sequence", {"format": "r0", "duration": "0s", "tcStart": "3600/1s",
                                               "tcFormat": "NDF", "audioLayout": "stereo", "audioRate": "48k"})
     spine = ET.SubElement(seq, "spine")
-    t0 = plan.cuts[0][0] if plan.cuts else plan.origin
     rec = Fraction(3600)
-    placed = []   # (element, timeline position from the cut's start, local start, duration)
+    placed = []   # dict(el, a, b, rec, local, dur) per cut
     for a, b, cam, why in plan.cuts:
-        start = _frames(a - plan.origin, fps)
-        dur = _frames(b - plan.origin, fps) - start
+        local = _frames(a - plan.origin, fps)
+        dur = _frames(b - plan.origin, fps) - local
         if dur <= 0:
             continue
         clip = ET.SubElement(spine, "mc-clip", {"ref": "mc1", "offset": _ts(rec), "name": f"{cam} -- {why}",
-                                                "start": _ts(start), "duration": _ts(dur)})
+                                                "start": _ts(local), "duration": _ts(dur)})
         ET.SubElement(clip, "mc-source", {"angleID": angle_ids[cam], "srcEnable": "video"})
-        placed.append((clip, rec - 3600, start, dur))
+        placed.append({"el": clip, "a": a, "b": b, "rec": rec - 3600, "local": local, "dur": dur})
         rec += dur
-    # Every lav on its own track under the cut, from the moment it was
-    # recording: attached to whichever cut is playing then, at that cut's
-    # local time, so it stays in sync even if it started after the cut does.
-    for lane, lav in enumerate(plan.lavs, 1):
-        when = _frames(max(lav.start, t0) - t0, fps)                  # on the cut timeline
-        src_in = _frames(max(t0 - lav.start, 0), fps)                 # into the lav file
-        length = min(total - when, _frames(lav.info["duration"], fps) - src_in)
-        if length <= 0:
-            continue
-        host = next((c for c in placed if c[1] <= when < c[1] + c[3]), placed[-1] if placed else None)
-        if host is None:
-            continue
-        clip, host_pos, host_start, _ = host
-        ET.SubElement(clip, "asset-clip", {
-            "ref": refs[lav.name], "lane": str(-lane), "offset": _ts(host_start + (when - host_pos)),
-            "name": f"{lav.person} lav", "start": _ts(src_in), "duration": _ts(length),
-            "audioRole": "dialogue"})
+    seq.set("duration", _ts(rec - 3600))
+    # Sections: runs of cuts with nothing skipped between them. A mic is attached per section, at the exact
+    # place its sound belongs, so a stretch left out of the picture never pushes the sound out of sync.
+    sections, cur = [], []
+    for c in placed:
+        if cur and c["a"] - cur[-1]["b"] > 1.5 / float(fps):
+            sections.append(cur)
+            cur = []
+        cur.append(c)
+    if cur:
+        sections.append(cur)
+    for lane, lav in enumerate(plan.lavs if plan.attach_lavs else [], 1):
+        for j, sp in enumerate(spans(lav)):
+            for sec in sections:
+                lo, hi = max(sp["start"], sec[0]["a"]), min(sp["start"] + sp["duration"], sec[-1]["b"])
+                if hi - lo < 2 / float(fps):
+                    continue
+                host = next((c for c in sec if c["a"] <= lo < c["b"]), None)
+                if host is None:
+                    continue
+                # Everything in the multicam's own frame grid: neighbouring clips of one mic then share an exact
+                # boundary (a one-frame overlap would make Resolve push the next clip onto another track).
+                f_lo, f_hi = _frames(lo - plan.origin, fps), _frames(hi - plan.origin, fps)
+                if f_hi <= f_lo:
+                    continue
+                ET.SubElement(host["el"], "asset-clip", {
+                    "ref": refs[(lav.name, j)], "lane": str(-lane), "offset": _ts(f_lo),
+                    "name": f"{lav.person} lav", "start": _ts(Fraction(sp["tc"]) + _frames(lo - sp["start"], fps)),
+                    "duration": _ts(f_hi - f_lo), "audioRole": "dialogue"})
     return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding="unicode")
 
 
-def import_to_resolve(h, plan: PanelPlan, name: str) -> dict:
+def import_to_resolve(h, plan: PanelPlan, name: str, import_sources: bool = True) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix="theodore-panel-")) / "panel.fcpxml"
     tmp.write_text(to_fcpxml(plan, name), encoding="utf-8")
     pool = h.project.GetMediaPool()
-    tl = pool.ImportTimelineFromFile(str(tmp), {"timelineName": name, "importSourceClips": True})
+    tl = pool.ImportTimelineFromFile(str(tmp), {"timelineName": name, "importSourceClips": bool(import_sources)})
     if not tl:
         raise PanelError(f"Resolve would not import the multicam FCPXML ({tmp}).")
     h.project.SetCurrentTimeline(tl)
