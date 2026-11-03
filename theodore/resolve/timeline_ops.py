@@ -482,6 +482,26 @@ def assemble_clip_selects(h, selects: list[dict], name: str, *, markers: bool = 
             "duration_frames": cursor - int(tl.GetStartFrame())}
 
 
+def _place_exact(tl, pool, info: dict, want: int):
+    """Place a piece at exactly `want` frames at its record frame, or nothing.
+
+    Resolve rounds what it places (a 24 fps WAV on a 23.976 timeline can land a
+    frame or two off), so a wrong length leaves a hole at the cut or bumps the
+    next piece along the track. Measure each try; a wrong one never stays."""
+    for shift in (0, 1, -1):  # moving the in point changes how the source rounds
+        for extra in (1, 0, 2, -1):
+            trial = dict(info, startFrame=info["startFrame"] + shift,
+                         endFrame=info["endFrame"] + shift + extra)
+            got = _placed_item(pool.AppendToTimeline([trial]))
+            if got is None:
+                continue
+            # GetDuration can read right while the clip really ends a frame later.
+            if int(got.GetStart()) == info["recordFrame"] and int(got.GetEnd()) == info["recordFrame"] + want:
+                return got
+            tl.DeleteClips([got], False)
+    return None
+
+
 def assemble_timeline_ranges(h, ranges: list[tuple[int, int]], name: str,
                              labels: Optional[list] = None) -> dict:
     """Build a new timeline from [start, end) ranges of the OPEN timeline's frames,
@@ -514,7 +534,7 @@ def assemble_timeline_ranges(h, ranges: list[tuple[int, int]], name: str,
             info = {"mediaPoolItem": s.mpi, "startFrame": s.src_in + (lo - s.start),
                     "endFrame": s.src_in + (hi - s.start), "recordFrame": cursor + (lo - a),
                     "trackIndex": s.index, "mediaType": 1 if s.kind == VIDEO else 2}
-            got = _placed_item(pool.AppendToTimeline([info]))
+            got = _place_exact(tl, pool, info, hi - lo)
             if got is None:
                 skipped += 1
                 continue
