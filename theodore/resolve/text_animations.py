@@ -46,11 +46,11 @@ def _instance(n: int, op: str, src: str, extra: str = "") -> str:
     return f"\t\t\t\tInput{n} = InstanceInput {{\n\t\t\t\t\tSourceOp = \"{op}\",\n\t\t\t\t\tSource = \"{src}\",\n{extra}\t\t\t\t}},\n"
 
 
-def text_tool(extra_inputs: str = "", size: float = 0.115, text: str = "Your Text") -> str:
+def text_tool(extra_inputs: str = "", size: float = 0.115, text: str = "Your Text", font: str = "Open Sans", style: str = "Bold", name: str = "Text") -> str:
     """The visible Text+. If extra_inputs already sets StyledText (an expression), no default text is written."""
     t = "\t\t\t\t\t\t"
     lines = [
-        "\t\t\t\tText = TextPlus {\n\t\t\t\t\tNameSet = true,\n\t\t\t\t\tInputs = {\n",
+        f"\t\t\t\t{name} = TextPlus {{\n\t\t\t\t\tNameSet = true,\n\t\t\t\t\tInputs = {{\n",
         f"{t}Width = Input {{ Value = 1920, }},\n", f"{t}Height = Input {{ Value = 1080, }},\n",
         f"{t}UseFrameFormatSettings = Input {{ Value = 1, }},\n",
         f"{t}[\"Gamut.SLogVersion\"] = Input {{ Value = FuID {{ \"SLog2\" }}, }},\n",
@@ -58,7 +58,7 @@ def text_tool(extra_inputs: str = "", size: float = 0.115, text: str = "Your Tex
     if "StyledText = Input" not in extra_inputs:
         lines.append(f"{t}StyledText = Input {{ Value = \"{text}\", }},\n")
     lines += [
-        f"{t}Font = Input {{ Value = \"Open Sans\", }},\n", f"{t}Style = Input {{ Value = \"Bold\", }},\n",
+        f"{t}Font = Input {{ Value = \"{font}\", }},\n", f"{t}Style = Input {{ Value = \"{style}\", }},\n",
         f"{t}Size = Input {{ Value = {size}, }},\n",
         f"{t}VerticalJustificationNew = Input {{ Value = 3, }},\n", f"{t}HorizontalJustificationNew = Input {{ Value = 3, }},\n",
         extra_inputs,
@@ -73,13 +73,13 @@ def transform_tool(inputs: str, source: str = "Text") -> str:
             "\t\t\t\t\t},\n\t\t\t\t\tViewInfo = OperatorInfo { Pos = { 150, 0 } },\n\t\t\t\t},\n")
 
 
-def wrap(name: str, tools: str, out_op: str, size: float = 0.115, text_op: str = "Text") -> str:
+def wrap(name: str, tools: str, out_op: str, size: float = 0.115, text_op: str = "Text", text_src: str = "StyledText", extra_published: str = "") -> str:
     """The published controls every animation shares, around the animation's own tools."""
-    published = (_instance(1, text_op, "StyledText", "\t\t\t\t\tName = \"Text\",\n") + _instance(2, "Text", "Font", "\t\t\t\t\tControlGroup = 2,\n") +
+    published = (_instance(1, text_op, text_src, "\t\t\t\t\tName = \"Text\",\n") + _instance(2, "Text", "Font", "\t\t\t\t\tControlGroup = 2,\n") +
                  _instance(3, "Text", "Style", "\t\t\t\t\tControlGroup = 2,\n") + _instance(4, "Text", "Size", f"\t\t\t\t\tDefault = {size},\n") +
                  _instance(5, "Text", "Red1", "\t\t\t\t\tName = \"Text Colour\",\n\t\t\t\t\tControlGroup = 5,\n\t\t\t\t\tDefault = 1,\n") +
                  _instance(6, "Text", "Green1", "\t\t\t\t\tControlGroup = 5,\n\t\t\t\t\tDefault = 1,\n") +
-                 _instance(7, "Text", "Blue1", "\t\t\t\t\tControlGroup = 5,\n\t\t\t\t\tDefault = 1,\n"))
+                 _instance(7, "Text", "Blue1", "\t\t\t\t\tControlGroup = 5,\n\t\t\t\t\tDefault = 1,\n") + extra_published)
     return ("{\n\tTools = ordered() {\n\t\t" + name + " = GroupOperator {\n\t\t\tCtrlWZoom = false,\n\t\t\tInputs = ordered() {\n" + published +
             "\t\t\t},\n\t\t\tOutputs = {\n\t\t\t\tMainOutput1 = InstanceOutput {\n\t\t\t\t\tSourceOp = \"" + out_op + "\",\n\t\t\t\t\tSource = \"Output\",\n\t\t\t\t},\n\t\t\t},\n"
             "\t\t\tViewInfo = GroupInfo { Pos = { 0, 0 } },\n\t\t\tTools = ordered() {\n" + tools + "\t\t\t},\n\t\t},\n\t},\n}\n")
