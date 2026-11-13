@@ -22,3 +22,6 @@ Timeline **Synced - RED + Lavs** (24 fps, starts 86400):
 - 67 shots, frame-exact at 30 min, zero gaps. Lavs on A2/A3 placed with read-back.
 - The timeMap conform froze the 23.976 RED in a 24 fps multicam: fixed in theodore/edit/panel.py.
 - Open issue: the multicam uses imported copies of the camera clips, and the graded picture looks brighter and framed slightly differently from the synced timeline.
+
+## Alisona's lip sync (2026-11-13)
+- The Alexa clips report **Camera FPS 23.976** but **Shot Frame Rate 24.000**: played as 24 the picture ran 0.1% fast and drifted about 42 frames ahead of the lav by the end of A036. Set the clips' FPS to 23.976 in Resolve (originals and multicam copies), re-laid A036/A037 on the synced timeline at the editor's start frames, and rebuilt the multicam with the Alexa at 23.976 (`multicam_fcpxml.py`, which now also puts both lavs inside the multicam as audio angles).
