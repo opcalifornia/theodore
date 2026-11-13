@@ -649,7 +649,9 @@ def to_fcpxml(plan: PanelPlan, name: str) -> str:
             # rates, so frame n still lands at n/rate seconds. Played frame for frame it falls ~0.1% behind the sound
             # (1.7 s over 28 minutes).
             ratio = Fraction(sp["info"]["fps"]) / Fraction(fps)
-            if sp["info"]["has_video"] and abs(float(ratio) - 1) > 1e-4:
+            # Only for a FASTER camera: a 23.976 RED in a 24 fps multicam with this timeMap came in as one
+            # frozen frame (Creative Couch, 2026-11-13); without it Resolve plays it in real time, frame exact.
+            if sp["info"]["has_video"] and float(ratio) - 1 > 1e-4:
                 tm = ET.SubElement(el, "timeMap")
                 tc0 = Fraction(sp["tc"])
                 ET.SubElement(tm, "timept", {"time": "0s", "value": _ts(tc0), "interp": "linear"})
