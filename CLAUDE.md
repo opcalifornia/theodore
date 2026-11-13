@@ -20,3 +20,13 @@ Theodore is an AI editor working inside DaVinci Resolve for one editor. Speed an
 - Only after that: node tree (the editor's: `~/Documents/Theodore/Node Trees/`, apply with `Graph.ApplyGradeFromDRX(path, 0)`; `theodore/color/drx_patch.py` retargets the first CST's camera input). RED setup: Color Space REDWideGamutRGB, Gamma Curve Log3G10, node 1 CST = RWG/Log3G10 -> DWG/Intermediate.
 - Reference (CREATIVE FORUM 2026, R058_C039_0101FU_001.R3D, set by the editor 2026-11-13): ISO 2000 -> 500, Color Temp 5600 -> 4080, Tint 0 -> -9.91, Exposure Adjust 0. Scene-specific: use as a starting guess for a similar scene, never copy blindly; check the picture/scopes after.
 - The scripting API cannot read or set Camera Raw (Decode Using, gamma, ISO, temp, tint). Drive the UI: `screencapture` to see, CoreGraphics mouse events to click (open a dropdown and pick the item in ONE run; Resolve must be frontmost). Read the values back from a screenshot and tell the editor what you set.
+
+## Lavs travel with the video, always (editor's rule, 2026-11-13)
+- The external mics (DJI lavs) are the reason we line up audio: **every cut, trim, assembly or rebuild must carry the lav audio under its video, linked.** Never ship a timeline where a video piece has only camera audio. After every build, read back that each video piece has its lav piece on A5 (same record frame, same length, source offset consistent with the original's sync) and call `Timeline.SetClipsLinked([video, lav, camera audio...], True)`.
+- `trim_timeline_ranges` / `assemble_timeline_ranges` do NOT do this safely (they dropped the lavs and doubled camera audio on 2026-11-13). Build cuts explicitly: video -> camera audio (Resolve spreads the R3D's 4 channels over A3..A5: delete the stray copy on A5) -> lav on A5 via `_place_exact`, then link.
+- Verify by transcribing the result (`theodore.resolve.transcribe.transcribe_timeline`): it must read as the lav speech. `[Inaudible]` means the lavs are missing.
+- Every new timeline from a cut or rebuild loses the clips' grade: re-apply the editor's node tree (`Graph.ApplyGradeFromDRX`) to every video piece, and RAW settings stay on the media pool clip.
+- `AppendToTimeline` goes into the current timeline: `SetCurrentTimeline(new)` first and read the name back. Never run it while a different timeline is open.
+
+## Keep the project organized
+- Media pool has a **Timelines** bin: finished/working-copy timelines at its root (e.g. `audio lined up`, `test`), a **Timelines/Working** sub-bin for checkpoints, scratch and uncut copies. Every timeline Theodore creates is moved into one of them straight away; nothing loose in the Master root. Name scratch timelines `Theodore scratch ...` and checkpoints `Theodore checkpoint ...` so they are obvious.
