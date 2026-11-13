@@ -1,0 +1,1283 @@
+{
+ "Shriners Empowerment Piece 16x9": {
+  "tracks": {
+   "video1": [
+    {
+     "name": "C0523 ii.MP4",
+     "start": 0,
+     "end": 132,
+     "left": 5855,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 132,
+     "end": 368,
+     "left": 6027,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 368,
+     "end": 721,
+     "left": 3260,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 721,
+     "end": 875,
+     "left": 4003,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 875,
+     "end": 929,
+     "left": 1779,
+     "enabled": true
+    },
+    {
+     "name": "C0525 II.MP4",
+     "start": 929,
+     "end": 1051,
+     "left": 3700,
+     "enabled": true
+    },
+    {
+     "name": "C0519 ii.MP4",
+     "start": 1051,
+     "end": 1399,
+     "left": 7870,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 1399,
+     "end": 1457,
+     "left": 10676,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1457,
+     "end": 1602,
+     "left": 2989,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1602,
+     "end": 1639,
+     "left": 3486,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1639,
+     "end": 1657,
+     "left": 3549,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1657,
+     "end": 1746,
+     "left": 9078,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1746,
+     "end": 1840,
+     "left": 9254,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1840,
+     "end": 2326,
+     "left": 10505,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2326,
+     "end": 2354,
+     "left": 11294,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 2354,
+     "end": 2511,
+     "left": 21805,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 2511,
+     "end": 2653,
+     "left": 11955,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2653,
+     "end": 2809,
+     "left": 14686,
+     "enabled": true
+    }
+   ],
+   "video2": [
+    {
+     "name": "C0523.MP4",
+     "start": 0,
+     "end": 132,
+     "left": 5665,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 132,
+     "end": 368,
+     "left": 5837,
+     "enabled": true
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 368,
+     "end": 721,
+     "left": 3375,
+     "enabled": false
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 721,
+     "end": 875,
+     "left": 4118,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 875,
+     "end": 929,
+     "left": 1589,
+     "enabled": false
+    },
+    {
+     "name": "C0525.MP4",
+     "start": 929,
+     "end": 1051,
+     "left": 3360,
+     "enabled": true
+    },
+    {
+     "name": "C0519.MP4",
+     "start": 1051,
+     "end": 1399,
+     "left": 7613,
+     "enabled": false
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 1399,
+     "end": 1457,
+     "left": 10577,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1457,
+     "end": 1602,
+     "left": 2799,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1602,
+     "end": 1639,
+     "left": 3296,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1639,
+     "end": 1657,
+     "left": 3359,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1657,
+     "end": 1746,
+     "left": 8888,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1746,
+     "end": 1840,
+     "left": 9064,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1840,
+     "end": 2326,
+     "left": 10315,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2326,
+     "end": 2354,
+     "left": 11104,
+     "enabled": false
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 2354,
+     "end": 2511,
+     "left": 21706,
+     "enabled": true
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 2511,
+     "end": 2653,
+     "left": 12070,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2653,
+     "end": 2809,
+     "left": 14496,
+     "enabled": true
+    }
+   ],
+   "audio1": [
+    {
+     "name": "C0523 ii.MP4",
+     "start": 0,
+     "end": 132,
+     "left": 5855,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 132,
+     "end": 368,
+     "left": 6027,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 368,
+     "end": 721,
+     "left": 3260,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 721,
+     "end": 875,
+     "left": 4003,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 875,
+     "end": 929,
+     "left": 1779,
+     "enabled": null
+    },
+    {
+     "name": "C0525 II.MP4",
+     "start": 929,
+     "end": 1051,
+     "left": 3700,
+     "enabled": null
+    },
+    {
+     "name": "C0519 ii.MP4",
+     "start": 1051,
+     "end": 1399,
+     "left": 7870,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 1399,
+     "end": 1457,
+     "left": 10676,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1457,
+     "end": 1602,
+     "left": 2989,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1602,
+     "end": 1639,
+     "left": 3486,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1639,
+     "end": 1657,
+     "left": 3549,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1657,
+     "end": 1746,
+     "left": 9078,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1746,
+     "end": 1840,
+     "left": 9254,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1840,
+     "end": 2326,
+     "left": 10505,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2326,
+     "end": 2354,
+     "left": 11294,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 2354,
+     "end": 2511,
+     "left": 21805,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 2511,
+     "end": 2653,
+     "left": 11955,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2653,
+     "end": 2809,
+     "left": 14686,
+     "enabled": null
+    }
+   ],
+   "audio2": [
+    {
+     "name": "C0523.MP4",
+     "start": 0,
+     "end": 132,
+     "left": 5665,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 132,
+     "end": 368,
+     "left": 5837,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 368,
+     "end": 721,
+     "left": 3375,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 721,
+     "end": 875,
+     "left": 4118,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 875,
+     "end": 929,
+     "left": 1589,
+     "enabled": null
+    },
+    {
+     "name": "C0525.MP4",
+     "start": 929,
+     "end": 1051,
+     "left": 3360,
+     "enabled": null
+    },
+    {
+     "name": "C0519.MP4",
+     "start": 1051,
+     "end": 1399,
+     "left": 7613,
+     "enabled": null
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 1399,
+     "end": 1457,
+     "left": 10577,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1457,
+     "end": 1602,
+     "left": 2799,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1602,
+     "end": 1639,
+     "left": 3296,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1639,
+     "end": 1657,
+     "left": 3359,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1657,
+     "end": 1746,
+     "left": 8888,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1746,
+     "end": 1840,
+     "left": 9064,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1840,
+     "end": 2326,
+     "left": 10315,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2326,
+     "end": 2354,
+     "left": 11104,
+     "enabled": null
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 2354,
+     "end": 2511,
+     "left": 21706,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 2511,
+     "end": 2653,
+     "left": 12070,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2653,
+     "end": 2809,
+     "left": 14496,
+     "enabled": null
+    }
+   ]
+  },
+  "markers": {
+   "0": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 244.20-249.71 s\nThis is groundbreaking because this is a population of donors.",
+    "name": "01 Hook: groundbreaking, a population of donors",
+    "customData": ""
+   },
+   "132": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 251.38-261.23 s\nThis is a population of men who are making a difference that usually we would not expect a difference to be made from.",
+    "name": "02 Men making a difference we would not expect",
+    "customData": ""
+   },
+   "368": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 135.98-150.70 s\nSo, I started out making donations to Shriners Hospital, $10 donation every two or three months.",
+    "name": "03 Origin: Norman's $10 donations, wanted to do more",
+    "customData": ""
+   },
+   "721": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 166.96-173.37 s\nAnd after making this donation I felt like I was not doing enough. So I want to do more.",
+    "name": "04 Origin: Norman's $10 donations, wanted to do more",
+    "customData": ""
+   },
+   "875": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 74.20-76.45 s\nthat gentleman right there wrote me a letter.",
+    "name": "05 That gentleman wrote me a letter",
+    "customData": ""
+   },
+   "929": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Jeffrey Burke, organizer | C0525 II.MP4 154.32-159.41 s\nAnd Mr. Joe Wilson accepted. He wrote me back a letter and accepted our proposal.",
+    "name": "06 Joe Wilson accepted",
+    "customData": ""
+   },
+   "1051": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Daniel Henson | C0519 ii.MP4 328.26-342.79 s\nIt's everything to me. I can't revive the lives I took. I can't undo my past, but I can give back. I can prevent harm. I can contribute to society. I can help raise some money for Shriners so some kid doesn't have to be sick. Some",
+    "name": "07 Daniel: I can give back, so some kid doesn't have to be sick",
+    "customData": ""
+   },
+   "1399": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Elijah Johnson | A7Siii0508.MP4 445.28-447.70 s\nif you're still alive, you have something to give back.",
+    "name": "08 Eli: you have something to give back",
+    "customData": ""
+   },
+   "1457": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 124.68-130.73 s\nit's about telling the story of who we are what we do what the magic that we make happen for kiddos who need us",
+    "name": "09 The magic we make happen for kiddos",
+    "customData": ""
+   },
+   "1602": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 145.40-146.95 s\nWe're there to say yes, we can help. That's what we do.",
+    "name": "10 We're there to say yes",
+    "customData": ""
+   },
+   "1639": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 148.01-148.75 s\nWe're there to say yes, we can help. That's what we do.",
+    "name": "11 We're there to say yes",
+    "customData": ""
+   },
+   "1657": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 378.62-382.35 s\nUltimately, I thought it was going to be a lot of anger",
+    "name": "12 Expected anger and intimidation; saw none",
+    "customData": ""
+   },
+   "1746": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 385.98-389.89 s\nand intimidation. I've seen none of that today.",
+    "name": "13 Expected anger and intimidation; saw none",
+    "customData": ""
+   },
+   "1840": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 438.16-458.45 s\nI would see kids, our patients, who are using prosthetics. They might have a burn on their whole face, using a cannula, an oxygen to be forced to air, and smiling and laughing. And that puts things into perspective, doesn't it?",
+    "name": "14 Kids at the hospital: perspective",
+    "customData": ""
+   },
+   "2326": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 471.06-472.23 s\nThis does the same thing.",
+    "name": "15 This does the same thing",
+    "customData": ""
+   },
+   "2354": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Elijah Johnson | A7Siii0508.MP4 909.46-916.00 s\nI want to build something where kids could go to and be safe. Call this place home.",
+    "name": "16 Eli: a place where kids can be safe",
+    "customData": ""
+   },
+   "2511": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 498.62-504.55 s\nSo we giving each other a gift, but also giving Shriners a gift.",
+    "name": "17 Norman: giving Shriners a gift",
+    "customData": ""
+   },
+   "2653": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 612.52-619.01 s\nwe like to say yes. If it's within our realm of helping a child we will.",
+    "name": "18 Close: we like to say yes",
+    "customData": ""
+   }
+  }
+ },
+ "Shriners Empowerment Piece": {
+  "tracks": {
+   "video1": [
+    {
+     "name": "C0523 ii.MP4",
+     "start": 0,
+     "end": 110,
+     "left": 5877,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 110,
+     "end": 346,
+     "left": 6027,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 346,
+     "end": 699,
+     "left": 3260,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 699,
+     "end": 853,
+     "left": 4003,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 853,
+     "end": 907,
+     "left": 1779,
+     "enabled": true
+    },
+    {
+     "name": "C0525 II.MP4",
+     "start": 907,
+     "end": 1029,
+     "left": 3700,
+     "enabled": true
+    },
+    {
+     "name": "C0519 ii.MP4",
+     "start": 1029,
+     "end": 1377,
+     "left": 7870,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 1377,
+     "end": 1435,
+     "left": 10676,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1435,
+     "end": 1580,
+     "left": 2989,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1580,
+     "end": 1617,
+     "left": 3486,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1617,
+     "end": 1635,
+     "left": 3549,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1635,
+     "end": 1724,
+     "left": 9078,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1724,
+     "end": 1818,
+     "left": 9254,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1818,
+     "end": 2304,
+     "left": 10505,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2304,
+     "end": 2332,
+     "left": 11294,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 2332,
+     "end": 2489,
+     "left": 21805,
+     "enabled": true
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 2489,
+     "end": 2631,
+     "left": 11955,
+     "enabled": true
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2631,
+     "end": 2787,
+     "left": 14686,
+     "enabled": true
+    }
+   ],
+   "video2": [
+    {
+     "name": "C0523.MP4",
+     "start": 0,
+     "end": 110,
+     "left": 5687,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 110,
+     "end": 346,
+     "left": 5837,
+     "enabled": true
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 346,
+     "end": 699,
+     "left": 3375,
+     "enabled": false
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 699,
+     "end": 853,
+     "left": 4118,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 853,
+     "end": 907,
+     "left": 1589,
+     "enabled": false
+    },
+    {
+     "name": "C0525.MP4",
+     "start": 907,
+     "end": 1029,
+     "left": 3360,
+     "enabled": true
+    },
+    {
+     "name": "C0519.MP4",
+     "start": 1029,
+     "end": 1377,
+     "left": 7613,
+     "enabled": false
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 1377,
+     "end": 1435,
+     "left": 10577,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1435,
+     "end": 1580,
+     "left": 2799,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1580,
+     "end": 1617,
+     "left": 3296,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1617,
+     "end": 1635,
+     "left": 3359,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1635,
+     "end": 1724,
+     "left": 8888,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1724,
+     "end": 1818,
+     "left": 9064,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1818,
+     "end": 2304,
+     "left": 10315,
+     "enabled": true
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2304,
+     "end": 2332,
+     "left": 11104,
+     "enabled": false
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 2332,
+     "end": 2489,
+     "left": 21706,
+     "enabled": true
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 2489,
+     "end": 2631,
+     "left": 12070,
+     "enabled": false
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2631,
+     "end": 2787,
+     "left": 14496,
+     "enabled": true
+    }
+   ],
+   "audio1": [
+    {
+     "name": "C0523 ii.MP4",
+     "start": 0,
+     "end": 110,
+     "left": 5877,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 110,
+     "end": 346,
+     "left": 6027,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 346,
+     "end": 699,
+     "left": 3260,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 699,
+     "end": 853,
+     "left": 4003,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 853,
+     "end": 907,
+     "left": 1779,
+     "enabled": null
+    },
+    {
+     "name": "C0525 II.MP4",
+     "start": 907,
+     "end": 1029,
+     "left": 3700,
+     "enabled": null
+    },
+    {
+     "name": "C0519 ii.MP4",
+     "start": 1029,
+     "end": 1377,
+     "left": 7870,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 1377,
+     "end": 1435,
+     "left": 10676,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1435,
+     "end": 1580,
+     "left": 2989,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1580,
+     "end": 1617,
+     "left": 3486,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1617,
+     "end": 1635,
+     "left": 3549,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1635,
+     "end": 1724,
+     "left": 9078,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1724,
+     "end": 1818,
+     "left": 9254,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 1818,
+     "end": 2304,
+     "left": 10505,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2304,
+     "end": 2332,
+     "left": 11294,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0508.MP4",
+     "start": 2332,
+     "end": 2489,
+     "left": 21805,
+     "enabled": null
+    },
+    {
+     "name": "A7Siii0491.MP4",
+     "start": 2489,
+     "end": 2631,
+     "left": 11955,
+     "enabled": null
+    },
+    {
+     "name": "C0523 ii.MP4",
+     "start": 2631,
+     "end": 2787,
+     "left": 14686,
+     "enabled": null
+    }
+   ],
+   "audio2": [
+    {
+     "name": "C0523.MP4",
+     "start": 0,
+     "end": 110,
+     "left": 5687,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 110,
+     "end": 346,
+     "left": 5837,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 346,
+     "end": 699,
+     "left": 3375,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 699,
+     "end": 853,
+     "left": 4118,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 853,
+     "end": 907,
+     "left": 1589,
+     "enabled": null
+    },
+    {
+     "name": "C0525.MP4",
+     "start": 907,
+     "end": 1029,
+     "left": 3360,
+     "enabled": null
+    },
+    {
+     "name": "C0519.MP4",
+     "start": 1029,
+     "end": 1377,
+     "left": 7613,
+     "enabled": null
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 1377,
+     "end": 1435,
+     "left": 10577,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1435,
+     "end": 1580,
+     "left": 2799,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1580,
+     "end": 1617,
+     "left": 3296,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1617,
+     "end": 1635,
+     "left": 3359,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1635,
+     "end": 1724,
+     "left": 8888,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1724,
+     "end": 1818,
+     "left": 9064,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 1818,
+     "end": 2304,
+     "left": 10315,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2304,
+     "end": 2332,
+     "left": 11104,
+     "enabled": null
+    },
+    {
+     "name": "C0545.MP4",
+     "start": 2332,
+     "end": 2489,
+     "left": 21706,
+     "enabled": null
+    },
+    {
+     "name": "C0518.MP4",
+     "start": 2489,
+     "end": 2631,
+     "left": 12070,
+     "enabled": null
+    },
+    {
+     "name": "C0523.MP4",
+     "start": 2631,
+     "end": 2787,
+     "left": 14496,
+     "enabled": null
+    }
+   ]
+  },
+  "markers": {
+   "110": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 251.38-261.23 s\nThis is a population of men who are making a difference that usually we would not expect a difference to be made from.",
+    "name": "02 Men making a difference we would not expect",
+    "customData": ""
+   },
+   "346": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 135.98-150.70 s\nSo, I started out making donations to Shriners Hospital, $10 donation every two or three months.",
+    "name": "03 Origin: Norman's $10 donations, wanted to do more",
+    "customData": ""
+   },
+   "699": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 166.96-173.37 s\nAnd after making this donation I felt like I was not doing enough. So I want to do more.",
+    "name": "04 Origin: Norman's $10 donations, wanted to do more",
+    "customData": ""
+   },
+   "853": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 74.20-76.45 s\nthat gentleman right there wrote me a letter.",
+    "name": "05 That gentleman wrote me a letter",
+    "customData": ""
+   },
+   "907": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Jeffrey Burke, organizer | C0525 II.MP4 154.32-159.41 s\nAnd Mr. Joe Wilson accepted. He wrote me back a letter and accepted our proposal.",
+    "name": "06 Joe Wilson accepted",
+    "customData": ""
+   },
+   "1029": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Daniel Henson | C0519 ii.MP4 328.26-342.79 s\nIt's everything to me. I can't revive the lives I took. I can't undo my past, but I can give back. I can prevent harm. I can contribute to society. I can help raise some money for Shriners so some kid doesn't have to be sick. Some",
+    "name": "07 Daniel: I can give back, so some kid doesn't have to be sick",
+    "customData": ""
+   },
+   "1377": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Elijah Johnson | A7Siii0508.MP4 445.28-447.70 s\nif you're still alive, you have something to give back.",
+    "name": "08 Eli: you have something to give back",
+    "customData": ""
+   },
+   "1435": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 124.68-130.73 s\nit's about telling the story of who we are what we do what the magic that we make happen for kiddos who need us",
+    "name": "09 The magic we make happen for kiddos",
+    "customData": ""
+   },
+   "1580": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 145.40-146.95 s\nWe're there to say yes, we can help. That's what we do.",
+    "name": "10 We're there to say yes",
+    "customData": ""
+   },
+   "1617": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 148.01-148.75 s\nWe're there to say yes, we can help. That's what we do.",
+    "name": "11 We're there to say yes",
+    "customData": ""
+   },
+   "1635": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 378.62-382.35 s\nUltimately, I thought it was going to be a lot of anger",
+    "name": "12 Expected anger and intimidation; saw none",
+    "customData": ""
+   },
+   "1724": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 385.98-389.89 s\nand intimidation. I've seen none of that today.",
+    "name": "13 Expected anger and intimidation; saw none",
+    "customData": ""
+   },
+   "1818": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 438.16-458.45 s\nI would see kids, our patients, who are using prosthetics. They might have a burn on their whole face, using a cannula, an oxygen to be forced to air, and smiling and laughing. And that puts things into perspective, doesn't it?",
+    "name": "14 Kids at the hospital: perspective",
+    "customData": ""
+   },
+   "2304": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 471.06-472.23 s\nThis does the same thing.",
+    "name": "15 This does the same thing",
+    "customData": ""
+   },
+   "2332": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Elijah Johnson | A7Siii0508.MP4 909.46-916.00 s\nI want to build something where kids could go to and be safe. Call this place home.",
+    "name": "16 Eli: a place where kids can be safe",
+    "customData": ""
+   },
+   "2489": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Norman Williams, started the walkathon | A7Siii0491.MP4 498.62-504.55 s\nSo we giving each other a gift, but also giving Shriners a gift.",
+    "name": "17 Norman: giving Shriners a gift",
+    "customData": ""
+   },
+   "2631": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "Joe Wilson, Shriners Children's | C0523 ii.MP4 612.52-619.01 s\nwe like to say yes. If it's within our realm of helping a child we will.",
+    "name": "18 Close: we like to say yes",
+    "customData": ""
+   }
+  }
+ }
+}
