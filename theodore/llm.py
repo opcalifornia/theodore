@@ -14,6 +14,7 @@ work unchanged, images included.
 from __future__ import annotations
 
 import json
+import getpass
 import os
 import shutil
 import subprocess
@@ -47,6 +48,16 @@ def subscription_env() -> dict:
     env = dict(os.environ)
     for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
         env.pop(key, None)
+    # Claude Code finds its sign-in in the login keychain by user name. A
+    # GUI-launched process (the Resolve panel) can have no USER/LOGNAME, and
+    # then it reports "Not logged in" even though the editor is.
+    try:
+        who = getpass.getuser()
+    except Exception:  # noqa: BLE001
+        who = os.path.basename(os.path.expanduser("~"))
+    env.setdefault("USER", who)
+    env.setdefault("LOGNAME", who)
+    env.setdefault("HOME", os.path.expanduser("~"))
     # GUI-launched processes (the Resolve panel) get a bare PATH.
     env["PATH"] = os.pathsep.join([os.path.dirname(claude_cli() or ""), env.get("PATH", ""),
                                    "/opt/homebrew/bin", "/usr/local/bin"])

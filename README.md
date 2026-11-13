@@ -495,6 +495,10 @@ theodore install-bridge          # copies the script into Resolve's Scripts fold
 theodore bridge-status           # confirm it worked
 ```
 
+Or skip the menu: `theodore start-bridge` asks Resolve (via external scripting,
+set to Local) to run the installed script. Don't paste the script into the
+Console -- that runs it on Resolve's UI thread, which it then blocks.
+
 A script run from Resolve's own **Workspace → Scripts** menu is handed a
 live `resolve` object, inside Resolve's process, on *any* edition.
 `resolve_scripts/Theodore Bridge.py` holds that object and re-exports it

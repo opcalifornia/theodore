@@ -25,7 +25,9 @@ def test_detection_returns_empty_when_resolve_is_not_installed(monkeypatch):
     monkeypatch.delenv("RESOLVE_SCRIPT_API", raising=False)
     monkeypatch.delenv("RESOLVE_SCRIPT_LIB", raising=False)
 
-    # This sandbox has no Resolve, which is exactly the case under test.
+    # Pretend nothing is installed, so this also passes on a machine that
+    # really has Resolve.
+    monkeypatch.setattr(paths, "_CANDIDATES", {"Darwin": [("/nonexistent/api", "/nonexistent/lib")]})
     found = paths.detect_scripting_paths(system="Darwin")
 
     assert found.api_dir is None

@@ -2594,6 +2594,42 @@ def install_bridge(dest: Optional[str], dry_run: bool, all_users: bool):
     )
 
 
+@cli.command(name="start-bridge")
+def start_bridge_cmd():
+    """Start the in-Resolve bridge for you (no Scripts-menu click, no Console).
+
+    Uses external scripting (Studio, "External scripting using" = Local) to
+    ask Resolve's Fusion to run the installed bridge script. Pasting the
+    script into the Console instead runs it on the UI thread and blocks it.
+    Does nothing if the bridge is already answering.
+    """
+    import time
+
+    if resolve_connection.probe().get("via") == resolve_connection.BRIDGE:
+        click.echo("The bridge is already running.")
+        return
+    candidates = [d / "Theodore" / BRIDGE_SCRIPT_NAME for d in resolve_paths.scripts_dirs()]
+    script = next((c for c in candidates if c.exists()), None)
+    if script is None:
+        raise click.ClickException("Bridge script not installed. Run: theodore install-bridge")
+    try:
+        handles = resolve_connection._connect_via_external(require_project=False, require_timeline=False)
+        fusion = handles.resolve.Fusion()
+        if fusion is None or fusion.RunScript(str(script)) is None:
+            raise click.ClickException(
+                "Resolve did not run the script (a dialog may be open). Close dialogs, or use "
+                "Workspace > Scripts > Theodore > Theodore Bridge.")
+    except resolve_connection.ResolveConnectionError as exc:
+        raise click.ClickException(f"{exc}\nSet Preferences > General > External scripting using = Local, "
+                                   "or use Workspace > Scripts > Theodore > Theodore Bridge.")
+    for _ in range(20):
+        time.sleep(0.5)
+        if resolve_connection.probe().get("via") == resolve_connection.BRIDGE:
+            click.echo("Bridge started.")
+            return
+    raise click.ClickException("Asked Resolve to run the bridge but it did not answer. Try the Scripts menu.")
+
+
 @cli.command(name="bridge-status")
 def bridge_status():
     """Show how (or whether) Theodore can currently reach DaVinci Resolve.
