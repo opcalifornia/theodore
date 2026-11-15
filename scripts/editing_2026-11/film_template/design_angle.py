@@ -34,7 +34,7 @@ def render(b: dict, blocks: list[dict], meta: dict, path: str, max_frames: int) 
     lab = b["label"]
     label(d, (x0, 58), "ANGLE LOG")
     d.text(_xy(x0, 78), meta["production"], font=ave(24), fill=INK + (255,))
-    label(d, (W - 80, 58), f"ANGLE {b['n']} / {len(blocks)}   ·   {b['shots'][0][-3:]}" + (f"–{b['shots'][-1][-3:]}" if len(b["shots"]) > 1 else ""), (255, 255, 255), 14, "ra")
+    label(d, (W - 80, 58), f"ANGLE CHANGE {b['n']} / {len(blocks)}   ·   {b['shots'][0][-3:]}" + (f"–{b['shots'][-1][-3:]}" if len(b["shots"]) > 1 else ""), (255, 255, 255), 14, "ra")
 
     glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(glow).text(_xy(x0 - 4, 118), b["id"], font=din(200), fill=tuple(a) + (160,))

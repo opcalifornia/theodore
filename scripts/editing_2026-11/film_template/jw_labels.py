@@ -60,13 +60,15 @@ L = {
 }
 # the police-at-the-door section was re-cut by frame (final numbering), so it is labelled by frame range:
 DOOR = [
- (4254, 4304, ("Wide to close-up", "Eye level", "Static", "Normal-long", "Low-key; red-blue light at the door", "John comes to the red door; the camera is on his face at the end")),
- (4305, 4354, ("Close-up", "Eye level", "Static", "Long, shallow", "Low-key; cool light, red car light behind", "John, face turned to the officer outside")),
- (4355, 4417, ("Medium over-the-shoulder", "Eye level", "Static", "Long", "Blue-lit officer, red car lights", "The officer, over John's shoulder")),
- (4418, 4498, ("Medium over-the-shoulder", "Eye level", "Static", "Long", "Dark; red light flicker", "John at the window while the officer waits")),
- (4499, 4696, ("Medium over-the-shoulder", "Eye level", "Static", "Long", "Red and blue police lights on the officer", "The officer speaks; John listens")),
- (4697, 4779, ("Close-up", "Eye level", "Static", "Long, shallow", "Low-key; red-lit face", "John's face at the window")),
- (4780, 4843, ("Medium close-up (profile)", "Eye level", "Static", "Normal", "Dark; red car light across the glass", "John in profile at the window")),
+ (2526, 3573, ("Wide, pushing in to a close-up", "Eye level", "One long push-in (no cut): hallway to John's face", "Wide to long", "Low-key; cool window light, warm wood wall", "A fight on the hallway floor; the camera creeps in until John's face fills the frame")),
+ (3574, 3895, ("Wide, then medium", "Eye level", "Whip across the window, then settles on John", "Normal", "Very low-key; red, green and blue police light through the glass", "A silhouette at the red window; John stands at the door and listens")),
+ (3896, 4255, ("Medium over-the-shoulder", "Eye level", "Static, long take", "Long, shallow", "Low-key; flickering red and blue police lights on the officer", "The officer talks to John at the door, over John's shoulder; John turns toward him")),
+ (4256, 4306, ("Medium-wide", "Eye level", "Static", "Normal", "Pink and cool light through the door glass", "The door and window frame, lit by the police lights")),
+ (4307, 4419, ("Medium over-the-shoulder", "Eye level", "Static", "Long, shallow", "Low-key; red car light behind the officer", "John, face turned toward the officer")),
+ (4420, 4500, ("Close-up", "Eye level", "Static", "Long, shallow", "Low-key; red and blue light across John's face", "John looks out the door")),
+ (4501, 4698, ("Medium over-the-shoulder", "Eye level", "Static, long take", "Long, shallow", "Red and blue police lights on the officer", "The officer speaks; John listens")),
+ (4699, 4781, ("Close-up", "Eye level", "Static", "Long, shallow", "Low-key; red-lit face", "John's face at the door")),
+ (4782, 4843, ("Medium close-up (profile)", "Eye level", "Static", "Normal", "Dark; red car light across the glass", "John in profile at the window")),
 ]
 SPLITS = {  # shots that were split from an older one by the second detection pass
  782: ("Medium", "Low", "Handheld", "Wide", "Low-key; hard light", "A man tumbles against the bookshelf"),
