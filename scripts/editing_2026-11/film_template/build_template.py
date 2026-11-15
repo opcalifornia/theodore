@@ -27,15 +27,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 import importlib
 
-THEME = os.environ.get("TEMPLATE_THEME", "neon")          # neon | hollywood
-design = importlib.import_module({"neon": "design", "hollywood": "design_hollywood"}[THEME])
+THEME = os.environ.get("TEMPLATE_THEME", "neon")          # neon | hollywood | fullframe
+design = importlib.import_module({"neon": "design", "hollywood": "design_hollywood", "fullframe": "design_fullframe"}[THEME])
 
-PROJECT = {"neon": "Neon Template", "hollywood": "Hollywood Template"}[THEME]
+PROJECT = {"neon": "Neon Template", "hollywood": "Hollywood Template", "fullframe": "Full Frame Template"}[THEME]
 MOD, LES = 1, 1
 LESSON_BIN = "M01-L01 Film Template"
 TIMELINE = "M01-L01 Film Template"
 MEDIA = os.path.expanduser({"neon": "~/Documents/Theodore/Templates/Film Template Media",
-                             "hollywood": "~/Documents/Theodore/Templates/Hollywood Template Media"}[THEME])
+                             "hollywood": "~/Documents/Theodore/Templates/Hollywood Template Media",
+                             "fullframe": "~/Documents/Theodore/Templates/Full Frame Template Media"}[THEME])
 REFS = os.path.join(MEDIA, "references")   # references/<shot ID>/*.jpg|png -> shown on that shot's slate
 IMG_EXT = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic")
 
