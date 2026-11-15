@@ -92,6 +92,27 @@ OVER = [
     ("lt_b", "title", 5, "Lower third - subject B name", "subj_b", 1, 2),
     ("subj_b_cut", "broll", 5, "B-roll cutaway - subject B detail", "subj_b", 9, 1),
 ]
+def load_shot_list(path: str | None = None):
+    """shot_list.csv is the single source of truth: edit it, re-run, everything regenerates.
+    Rows with a `parent` ride over that spine clip (B-roll / graphics); the rest form the V1 story."""
+    import csv
+    path = path or os.environ.get("SHOT_LIST") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "shot_list.csv")
+    spine, over, extra = [], [], {}
+    for r in csv.DictReader(open(path, newline="")):
+        if not (r.get("key") or "").strip():
+            continue
+        r = {k: (v or "").strip() for k, v in r.items()}
+        extra[r["key"]] = r
+        if r["parent"]:
+            over.append((r["key"], r["kind"], float(r["seconds"]), r["description"], r["parent"],
+                         float(r["into_seconds"] or 0), int(r["lane"] or 1)))
+        else:
+            spine.append((r["key"], r["kind"], float(r["seconds"]), r["description"]))
+    return spine, over, extra
+
+
+SPINE, OVER, SHOT_EXTRA = load_shot_list()
+
 # Dissolves on V1: cut after spine index i -> seconds. "head"/"tail" are fades from/to black.
 DISSOLVES = {1: 0.5, 2: 0.5, 4: 0.5, 5: 0.5, 8: 0.5, 9: 0.5, 10: 0.5, 11: 0.5, 12: 0.5, 14: 1.0}
 HEAD_FADE, TAIL_FADE = 1.0, 2.0
@@ -118,15 +139,15 @@ def fr(frames: int) -> str:
 def plan() -> dict:
     spine, t = [], HEAD
     for key, kind, sec, desc in SPINE:
-        n = sec * NOMINAL
+        n = int(round(sec * NOMINAL))
         spine.append(dict(key=key, kind=kind, frames=n, desc=desc, start=t, track="V1"))
         t += n
     total = t
     by = {s["key"]: s for s in spine}
     over = []
     for key, kind, sec, desc, parent, into, lane in OVER:
-        over.append(dict(key=key, kind=kind, frames=sec * NOMINAL, desc=desc, parent=parent,
-                         start=by[parent]["start"] + into * NOMINAL, lane=lane, track=f"V{lane + 1}"))
+        over.append(dict(key=key, kind=kind, frames=int(round(sec * NOMINAL)), desc=desc, parent=parent,
+                         start=by[parent]["start"] + int(round(into * NOMINAL)), lane=lane, track=f"V{lane + 1}"))
     shots = sorted(spine + over, key=lambda s: (s["start"], s["track"]))
     for i, s in enumerate(shots, 1):
         s["id"] = f"M{MOD:02d}-L{LES:02d}-S{i:02d}"
