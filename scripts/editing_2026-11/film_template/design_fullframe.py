@@ -7,7 +7,9 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from design import ACCENT, DIM, INK, _cover, _dashed_rect, _xy, spaced, tc  # shared helpers (2x supersampling)
+from design import ACCENT as _ACC, DIM, INK, _cover, _dashed_rect, _xy, spaced, tc  # shared helpers (2x supersampling)
+
+ACCENT = dict(_ACC, action=(255, 128, 64), dialogue=(46, 168, 255))
 
 W, H, S = 1920, 1080, 2
 SUP = "/System/Library/Fonts/Supplemental/"
@@ -16,7 +18,7 @@ MONO = "/System/Library/Fonts/SFNSMono.ttf"
 AVENIR = SUP + "Avenir Next.ttc"
 LEFT_W, BOTTOM_H = 700, 330                 # how far the frosted blend reaches in from the left / up from the bottom
 LABEL = {"interview": "INTERVIEW", "instruction": "INSTRUCTION", "broll": "B-ROLL",
-         "transition": "TRANSITION", "title": "TITLE"}
+         "transition": "TRANSITION", "title": "TITLE", "action": "ACTION", "dialogue": "DIALOGUE"}
 
 
 def din(size):
@@ -169,7 +171,8 @@ def camera_slate(shot: dict, meta: dict, path: str, max_frames: int, refs: list 
 
     # extra references (REF 02..04) bottom right; the first is the background itself
     tw, th = 176, 99
-    label(d, (1840, 886), "REFERENCES" if refs else "ADD REFERENCE STILLS", DIM, 12, "ra")
+    names = shot.get("ref_labels") or [f"REF {i + 1:02d}" for i in range(4)]
+    label(d, (1840, 886), ("BACKGROUND = " + names[0] + "   ·   THUMBNAILS: " + " / ".join(names[1:4]))[:90] if refs else "ADD REFERENCE STILLS", DIM, 12, "ra")
     for i in range(3):
         tx = 1840 - (3 - i) * (tw + 12) + 12
         ty = 906
@@ -177,7 +180,7 @@ def camera_slate(shot: dict, meta: dict, path: str, max_frames: int, refs: list 
             img.alpha_composite(_cover(refs[i + 1], tw * S, th * S), (tx * S, ty * S))
             d = ImageDraw.Draw(img)
             d.rectangle(_xy(tx, ty, tx + tw, ty + th), outline=tuple(a) + (200,), width=S)
-            label(d, (tx + 8, ty + th - 22), f"REF {i + 2:02d}", INK, 11)
+            label(d, (tx + 8, ty + th - 22), names[i + 1] if i + 1 < len(names) else f"REF {i + 2:02d}", INK, 11)
         else:
             d.rounded_rectangle(_xy(tx, ty, tx + tw, ty + th), 4 * S, fill=(0, 0, 0, 90))
             _dashed_rect(d, (tx, ty, tx + tw, ty + th), (255, 255, 255, 90), 8, 7, 1)
