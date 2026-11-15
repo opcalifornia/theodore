@@ -25,13 +25,17 @@ from fractions import Fraction
 
 from PIL import Image, ImageDraw, ImageFont
 
-import design
+import importlib
 
-PROJECT = "Theodore Film Template"
+THEME = os.environ.get("TEMPLATE_THEME", "neon")          # neon | hollywood
+design = importlib.import_module({"neon": "design", "hollywood": "design_hollywood"}[THEME])
+
+PROJECT = {"neon": "Neon Template", "hollywood": "Hollywood Template"}[THEME]
 MOD, LES = 1, 1
 LESSON_BIN = "M01-L01 Film Template"
 TIMELINE = "M01-L01 Film Template"
-MEDIA = os.path.expanduser("~/Documents/Theodore/Templates/Film Template Media")
+MEDIA = os.path.expanduser({"neon": "~/Documents/Theodore/Templates/Film Template Media",
+                             "hollywood": "~/Documents/Theodore/Templates/Hollywood Template Media"}[THEME])
 REFS = os.path.join(MEDIA, "references")   # references/<shot ID>/*.jpg|png -> shown on that shot's slate
 IMG_EXT = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic")
 

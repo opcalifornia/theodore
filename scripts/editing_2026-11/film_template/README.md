@@ -14,3 +14,8 @@ Reference frames: drop images in `references/<shot ID>/`, then
 `python build_template.py && python build_v2.py --refresh` (slates rewritten in place + ReplaceClip relink,
 references imported to the lesson's References bin; timeline untouched).
 Overwriting media in place without the relink shows Media Offline in Resolve.
+
+## Themes
+`TEMPLATE_THEME=neon|hollywood` picks the design module (`design.py` / `design_hollywood.py`), project name
+(**Neon Template** / **Hollywood Template**) and media folder. Backups: `~/Documents/Theodore/Templates/*.drp`.
+Run order for a new theme: `build_template.py` -> `build_project.py` -> `build_v2.py --checkpoint=...`.
