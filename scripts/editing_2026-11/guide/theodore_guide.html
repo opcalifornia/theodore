@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Theodore Field Guide</title>
+<style>
+  @page { size: 1920px 1080px; margin: 0; }
+  :root{
+    --bg:#06080c; --ink:#eef2f7; --dim:#8b97a8; --faint:#2a3340; --line:rgba(255,255,255,.13);
+    --cyan:#2ee6ff; --blue:#2ea8ff; --gold:#e8c070; --orange:#ff8040; --green:#39ff9c; --violet:#b46bff; --red:#ff4d5e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{background:var(--bg);color:var(--ink);font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif}
+  .din{font-family:"DIN Condensed","Avenir Next Condensed","Arial Narrow",sans-serif;font-weight:700;letter-spacing:.02em}
+  .mono{font-family:"SF Mono",Menlo,"Courier New",monospace;letter-spacing:.18em;text-transform:uppercase}
+  .page{width:1920px;height:1080px;position:relative;overflow:hidden;page-break-after:always;break-after:page;padding:84px 96px 80px;
+    background:
+      radial-gradient(900px 600px at 8% -5%, rgba(46,168,255,.20), transparent 70%),
+      radial-gradient(800px 600px at 100% 105%, rgba(255,128,64,.16), transparent 70%),
+      radial-gradient(700px 500px at 60% 40%, rgba(180,107,255,.06), transparent 70%),
+      var(--bg)}
+  .page::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 4px);pointer-events:none}
+  .corner{position:absolute;width:46px;height:46px;border:3px solid var(--cyan);opacity:.8}
+  .c1{left:34px;top:34px;border-right:0;border-bottom:0}.c2{right:34px;top:34px;border-left:0;border-bottom:0}
+  .c3{left:34px;bottom:34px;border-right:0;border-top:0}.c4{right:34px;bottom:34px;border-left:0;border-top:0}
+  .foot{position:absolute;left:96px;right:96px;bottom:38px;display:flex;justify-content:space-between;color:var(--dim);font-size:15px}
+  .kick{color:var(--cyan);font-size:19px;margin-bottom:10px}
+  h1.t{font-size:112px;line-height:.95;margin-bottom:26px}
+  h2.t{font-size:84px;line-height:.95;margin-bottom:22px}
+  p.lead{font-size:30px;line-height:1.38;color:#cfd7e3;max-width:1180px}
+  .stripe{height:30px;width:100%;background:repeating-linear-gradient(115deg,var(--cyan) 0 34px,#0b0e14 34px 68px);opacity:.95;border-radius:2px;box-shadow:0 0 40px rgba(46,230,255,.35)}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.065),rgba(255,255,255,.025));border:1px solid var(--line);border-radius:20px;padding:30px 32px;position:relative}
+  .badge{display:inline-flex;align-items:center;justify-content:center;width:84px;height:84px;border-radius:16px;font-size:64px;line-height:1;color:#05070a;font-weight:700}
+  .tag{display:inline-block;font-size:14px;padding:7px 12px;border-radius:6px;border:1px solid currentColor}
+  .dots{display:inline-flex;gap:7px;vertical-align:middle}.dots i{width:15px;height:15px;border-radius:50%;background:var(--faint);display:inline-block}.dots i.on{background:var(--ink)}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:26px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:34px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+  ul.tight{list-style:none}ul.tight li{font-size:24px;line-height:1.35;color:#d6dde8;padding-left:26px;position:relative;margin-bottom:10px}
+  ul.tight li::before{content:"";position:absolute;left:0;top:12px;width:10px;height:10px;background:var(--cyan);border-radius:2px}
+  .lab{font-size:15px;color:var(--dim);margin:16px 0 8px}
+  .cA{--c:var(--violet)}.cB{--c:var(--gold)}.cC{--c:var(--gold)}.cD{--c:var(--orange)}.cE{--c:var(--orange)}.cF{--c:var(--blue)}.cG{--c:var(--blue)}.cH{--c:var(--green)}
+  .opt .badge{background:var(--c)}.opt .nm{color:var(--c)}.opt .rule{height:3px;background:var(--c);width:100%;border-radius:2px;margin:14px 0 6px;opacity:.8}
+  .shot{border-radius:14px;border:1px solid var(--line);width:100%;display:block}
+  .stat{font-size:92px;line-height:1}
+  .check{width:34px;height:34px;border:3px solid var(--cyan);border-radius:7px;display:inline-block;flex:none}
+  .row{display:flex;align-items:center;gap:20px}
+  .say{position:absolute;left:40px;right:40px;bottom:36px;border:2px dashed var(--c);border-radius:14px;padding:18px 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.03)}
+  .say .mono{font-size:14px;color:var(--dim)}.say b{font-size:36px;color:var(--c);font-weight:700}
+</style>
+</head>
+<body>
+
+<!-- 1 · COVER -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="mono" style="color:var(--cyan);font-size:22px;margin-top:40px">An AI editor that lives inside DaVinci Resolve</div>
+  <div class="din" style="font-size:420px;line-height:.86;margin:96px 0 10px -10px;text-shadow:0 0 90px rgba(46,230,255,.45)">THEODORE</div>
+  <div class="stripe" style="width:1100px;margin:6px 0 40px"></div>
+  <div class="din" style="font-size:78px;color:var(--gold)">FIELD GUIDE &amp; OPTIONS MENU</div>
+  <p class="lead" style="margin-top:22px;max-width:1300px">Pick what you want built next. Every option below says what you get, what Theodore needs from you, how big the job is, and what is already done.</p>
+  <div class="foot"><span class="mono">Edition 1 · November 2026</span><span class="mono">Built for one editor · Resolve Studio 21</span></div>
+</section>
+
+<!-- 2 · HOW IT WORKS -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono">How it works</div>
+  <h1 class="t din">Pick it. Say the letter. Watch it appear.</h1>
+  <p class="lead">You talk to Theodore here, in chat. Theodore drives Resolve for you, builds the thing, then reads it back to prove it landed. No panel to learn.</p>
+  <div class="grid3" style="margin-top:56px">
+    <div class="card"><div class="din" style="font-size:150px;color:var(--cyan);line-height:1">01</div><div class="din" style="font-size:54px;margin:8px 0 12px">PICK</div><p style="font-size:26px;line-height:1.4;color:#cfd7e3">Choose one option, or a whole path of them, from the menu. Not sure? Start with a recommended path (page 9).</p></div>
+    <div class="card"><div class="din" style="font-size:150px;color:var(--gold);line-height:1">02</div><div class="din" style="font-size:54px;margin:8px 0 12px">TELL</div><p style="font-size:26px;line-height:1.4;color:#cfd7e3">Type the letter, plus anything the option says Theodore needs (a shot list, takes, a thumbs-up on the angle list).</p></div>
+    <div class="card"><div class="din" style="font-size:150px;color:var(--orange);line-height:1">03</div><div class="din" style="font-size:54px;margin:8px 0 12px">VERIFY</div><p style="font-size:26px;line-height:1.4;color:#cfd7e3">Theodore builds it in Resolve, checks clip counts, gaps and markers, shows you a screenshot, and tells you plainly what is still a guess.</p></div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">02</span></div>
+</section>
+
+<!-- 3 · WHAT EXISTS -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono">State of play</div>
+  <h1 class="t din" style="font-size:96px">What is already built</h1>
+  <div class="grid3" style="margin-top:14px">
+    <div><img class="shot" src="assets/neon.jpg"><div class="din" style="font-size:44px;margin-top:14px;color:var(--cyan)">NEON TEMPLATE</div><p style="font-size:21px;color:var(--dim);margin-top:4px">Game-HUD slates, 21-shot pre-production skeleton, movie-style audio tracks.</p></div>
+    <div><img class="shot" src="assets/hollywood.jpg"><div class="din" style="font-size:44px;margin-top:14px;color:var(--gold)">HOLLYWOOD TEMPLATE</div><p style="font-size:21px;color:var(--dim);margin-top:4px">2.39 letterbox, clapper sticks, filmstrip reference panel, controller prompts.</p></div>
+    <div><img class="shot" src="assets/fullframe.jpg"><div class="din" style="font-size:44px;margin-top:14px;color:var(--orange)">FULL FRAME TEMPLATE</div><p style="font-size:21px;color:var(--dim);margin-top:4px">The reference still is the whole frame; the info fades in on the left and bottom.</p></div>
+  </div>
+  <div class="grid4" style="margin-top:30px">
+    <div class="card"><div class="stat din" style="color:var(--cyan)">48</div><div class="mono" style="font-size:15px;color:var(--dim);margin-top:8px">shots in the John Wick study</div></div>
+    <div class="card"><div class="stat din" style="color:var(--gold)">47</div><div class="mono" style="font-size:15px;color:var(--dim);margin-top:8px">angle changes (overlay switches)</div></div>
+    <div class="card"><div class="stat din" style="color:var(--orange)">45</div><div class="mono" style="font-size:15px;color:var(--dim);margin-top:8px">distinct angles, some return</div></div>
+    <div class="card"><div class="stat din" style="color:var(--green)">1</div><div class="mono" style="font-size:15px;color:var(--dim);margin-top:8px">shot_list.csv drives a whole build</div></div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">03</span></div>
+</section>
+
+<!-- 4 · THE MENU -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono">The menu</div>
+  <h1 class="t din" style="font-size:96px">Eight things Theodore can build next</h1>
+  <div class="grid4" style="margin-top:20px;grid-auto-rows:1fr">
+    <div class="card opt cA"><span class="badge din">A</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">LIVE TITLE OVERLAY</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">One editable animated title replaces 47 baked images.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Design · Not built</div></div>
+    <div class="card opt cB"><span class="badge din">B</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">COVERAGE TRACKER</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">A live "angles still to shoot" list students fill in.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Teach · Partly built</div></div>
+    <div class="card opt cC"><span class="badge din">C</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">COMPARE MODE</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Student take vs reference: wipe it, check the lighting scopes.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Teach · Not built</div></div>
+    <div class="card opt cD"><span class="badge din">D</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">CUT &amp; CAMERA CHECK</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">A second opinion on cuts, and measured camera movement.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Analyze · Not built</div></div>
+    <div class="card opt cE"><span class="badge din">E</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SOUND ROW</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Transcribe and label the audio so "sound" is real data.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Analyze · Not built</div></div>
+    <div class="card opt cF"><span class="badge din">F</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SHEET + GUIDE EXPORT</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Shot list sheet and student guide, straight from the angle log.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Create · Data ready</div></div>
+    <div class="card opt cG"><span class="badge din">G</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SHOT-LIST BUILDER</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Hand over a shot list; get bins, timelines, slates and an ID list.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Create · Built</div></div>
+    <div class="card opt cH"><span class="badge din">H</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SWAP-IN LOOP</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Slated takes replace the placeholders automatically.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Produce · Dry-run only</div></div>
+  </div>
+  <p style="font-size:22px;color:var(--dim);margin-top:24px">Details on the next four pages. Effort dots: <span class="dots"><i class="on"></i><i></i><i></i><i></i></span> small job &nbsp;·&nbsp; <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span> big job.</p>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">04</span></div>
+</section>
+
+<!-- 5 · A + B -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div class="card opt cA" style="padding:36px 40px">
+      <div class="row"><span class="badge din">A</span><div><div class="din nm" style="font-size:62px;line-height:1">LIVE TITLE OVERLAY</div><span class="tag mono" style="color:var(--dim);margin-top:8px">NOT BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Replaces the baked overlay images with one Fusion title in Resolve: angle ID, type, tip and the angle grid as live text, sliding in on each new angle, with a real frosted-glass blur behind it.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>Change any word in the Inspector</li><li>Restyle once, every angle updates</li><li>A cleaner, animated, less "stale" look</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">Nothing new. Pick a skin: Neon, Hollywood or Full Frame.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">The Fusion template plus a script to fill it per angle is the tricky part. Theodore tests on three angles before doing all of them.</p><div class="say"><span class="mono">Say it</span><b class="din">"Build A in the Hollywood skin."</b></div>
+    </div>
+    <div class="card opt cB" style="padding:36px 40px">
+      <div class="row"><span class="badge din">B</span><div><div class="din nm" style="font-size:62px;line-height:1">COVERAGE TRACKER</div><span class="tag mono" style="color:var(--gold);margin-top:8px">PARTLY BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Every angle slot gets keywords (like WIDE · LOW) and a status colour. A list shows which angles are still to shoot and which are done, and the angle grid fills as takes are assigned.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>A live to-do list that lives in the project</li><li>Planned, shot, selected, synced, graded: one colour each</li><li>Students see exactly what coverage is missing</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">The shot list, and which angle types matter to you.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">Metadata and status colours already work. The scripting API Theodore checked cannot create Smart Bins, so the saved-search bin is a one-time click for you.</p><div class="say"><span class="mono">Say it</span><b class="din">"Build B for the John Wick angles."</b></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Options A and B</span><span class="mono">05</span></div>
+</section>
+
+<!-- 6 · C + D -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div class="card opt cC" style="padding:36px 40px">
+      <div class="row"><span class="badge din">C</span><div><div class="din nm" style="font-size:62px;line-height:1">COMPARE MODE</div><span class="tag mono" style="color:var(--dim);margin-top:8px">NOT BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Puts a student's take next to the reference for each angle. Resolve's Color page can wipe or split-screen a still against a clip, and the waveform and parade scopes show whether the lighting matches.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>An instant "did we match the angle?" check</li><li>A four-line checklist per angle: framing, height, lens, light</li><li>A reference still loaded and ready for each slot</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">Reference stills (kept private) and the student takes.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">Wiping is a Resolve screen feature; Theodore sets up the stills and layout but cannot drive the wipe from a script. Film frames never go into a student guide.</p><div class="say"><span class="mono">Say it</span><b class="din">"Build C, here are my reference stills."</b></div>
+    </div>
+    <div class="card opt cD" style="padding:36px 40px">
+      <div class="row"><span class="badge din">D</span><div><div class="din nm" style="font-size:62px;line-height:1">CUT &amp; CAMERA CHECK</div><span class="tag mono" style="color:var(--dim);margin-top:8px">NOT BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Cross-checks Theodore's cut list against Resolve's built-in Scene Cut Detection, and uses Fusion's camera tracker to measure pans, tilts and pushes instead of guessing the movement row.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>Fewer false cuts (door swings, flashes, whip pans)</li><li>Objective camera-movement labels</li><li>A shorter list of spots for you to judge</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">Only the footage already in Resolve.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">Untested on this very dark, flickering footage. Every detector gets fooled in the dark, so you stay the final judge.</p><div class="say"><span class="mono">Say it</span><b class="din">"Run D on the scene."</b></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Options C and D</span><span class="mono">06</span></div>
+</section>
+
+<!-- 7 · E + F -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div class="card opt cE" style="padding:36px 40px">
+      <div class="row"><span class="badge din">E</span><div><div class="din nm" style="font-size:62px;line-height:1">SOUND ROW</div><span class="tag mono" style="color:var(--dim);margin-top:8px">NOT BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Uses Resolve's own transcription and audio classification to fill the SOUND field for every shot: dialogue, gunfire, music, room tone.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>The sound row as real data, not "unverified"</li><li>A transcript with timecodes</li><li>Sound cues students can recreate</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">A legitimate copy that has audio. The screen recording is silent.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">The calls exist in this Resolve's scripting API but have not been tried yet. Audio from a film copy stays private study material.</p><div class="say"><span class="mono">Say it</span><b class="din">"Run E, here is the audio copy."</b></div>
+    </div>
+    <div class="card opt cF" style="padding:36px 40px">
+      <div class="row"><span class="badge din">F</span><div><div class="din nm" style="font-size:62px;line-height:1">SHEET + GUIDE EXPORT</div><span class="tag mono" style="color:var(--gold);margin-top:8px">DATA READY</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Turns the angle log into two documents: a shot list sheet (one row per shot: ID, in, out, size, angle, movement, lens, light, action, sound) and a student guide with timecodes, written descriptions and low-budget tips.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>A spreadsheet and a PDF like this one</li><li>No film frames in either, by design</li><li>Everything organised by angle</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">Your pass through the angle markers first, so it is built on a clean list.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">The tips are generic how-tos, not claims about how the film was made.</p><div class="say"><span class="mono">Say it</span><b class="din">"Build F from the angle log."</b></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Options E and F</span><span class="mono">07</span></div>
+</section>
+
+<!-- 8 · G + H -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div class="card opt cG" style="padding:36px 40px">
+      <div class="row"><span class="badge din">G</span><div><div class="din nm" style="font-size:62px;line-height:1">SHOT-LIST BUILDER</div><span class="tag mono" style="color:var(--green);margin-top:8px">BUILT</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Give Theodore a shot list or a script and it creates the bins (A-Cam, B-Cam, Audio, Graphics), one timeline per lesson, a marker per shot at its planned length, a slate for every shot, and the ID list production slates with.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>IDs like M01-L01-S01 on every shot</li><li>Pick a skin: Neon, Hollywood or Full Frame</li><li>Reference stills drop straight into each slate</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">The shot list: lesson, shot type, description, planned length.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i></i><i></i><i></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">The 21-shot sample is invented. Director, DP and editor read "TBD" until you supply real names.</p><div class="say"><span class="mono">Say it</span><b class="din">"Build G from this shot list."</b></div>
+    </div>
+    <div class="card opt cH" style="padding:36px 40px">
+      <div class="row"><span class="badge din">H</span><div><div class="din nm" style="font-size:62px;line-height:1">SWAP-IN LOOP</div><span class="tag mono" style="color:var(--orange);margin-top:8px">DRY-RUN ONLY</span></div></div>
+      <div class="rule"></div>
+      <div class="lab mono">What it does</div>
+      <p style="font-size:24px;line-height:1.4;color:#d6dde8">Reads the slate on each take with Resolve's Slate ID, matches it to its placeholder, drops it in at the planned length with the lavs linked, and keeps unused takes in the bin.</p>
+      <div class="lab mono">You get</div>
+      <ul class="tight"><li>A first assembly that builds itself as you shoot</li><li>Planned length vs actual on every shot</li><li>Unclear slates flagged for you, never guessed</li></ul>
+      <div class="lab mono">Theodore needs</div><p style="font-size:23px;color:#d6dde8">A few real slated takes and the lav files to test on safely.</p>
+      <div class="lab mono">Effort</div><span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+      <div class="lab mono">Watch out</div><p style="font-size:21px;line-height:1.4;color:var(--dim)">Only the read-only matcher exists. Whether Resolve's slate reader fills Scene and Take from a script is still untested.</p><div class="say"><span class="mono">Say it</span><b class="din">"Set up H, here are my slated takes."</b></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Options G and H</span><span class="mono">08</span></div>
+</section>
+
+<!-- 9 · PATHS -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono">Recommended paths</div>
+  <h1 class="t din" style="font-size:96px">Not sure where to start? Pick a path.</h1>
+  <div class="grid3" style="margin-top:36px">
+    <div class="card" style="border-color:rgba(46,168,255,.6)">
+      <div class="mono" style="color:var(--blue);font-size:16px">Path 1</div><div class="din" style="font-size:60px;margin:6px 0 4px">CLASSROOM DEMO</div>
+      <div class="din" style="font-size:80px;color:var(--blue);letter-spacing:.12em">F → C → A</div>
+      <p style="font-size:23px;line-height:1.4;color:#cfd7e3;margin-top:14px">Fastest win for students. Export the sheet and guide, add compare mode, then make the overlay live and editable.</p>
+      <div class="lab mono">First step you take</div><p style="font-size:22px;color:#d6dde8">Scrub the angle markers and flag any that are not a real angle change.</p>
+    </div>
+    <div class="card" style="border-color:rgba(57,255,156,.6)">
+      <div class="mono" style="color:var(--green);font-size:16px">Path 2</div><div class="din" style="font-size:60px;margin:6px 0 4px">REAL PRODUCTION</div>
+      <div class="din" style="font-size:80px;color:var(--green);letter-spacing:.12em">G → H → B</div>
+      <p style="font-size:23px;line-height:1.4;color:#cfd7e3;margin-top:14px">Build the project from a real shot list, let slated takes fill it in, and track coverage as you go.</p>
+      <div class="lab mono">First step you take</div><p style="font-size:22px;color:#d6dde8">Send the shot list; slate your first takes clearly.</p>
+    </div>
+    <div class="card" style="border-color:rgba(255,128,64,.6)">
+      <div class="mono" style="color:var(--orange);font-size:16px">Path 3</div><div class="din" style="font-size:60px;margin:6px 0 4px">ANALYSIS LAB</div>
+      <div class="din" style="font-size:80px;color:var(--orange);letter-spacing:.12em">D → E → A</div>
+      <p style="font-size:23px;line-height:1.4;color:#cfd7e3;margin-top:14px">Make the scene analysis trustworthy: second opinion on cuts, real sound labels, then a polished live overlay.</p>
+      <div class="lab mono">First step you take</div><p style="font-size:22px;color:#d6dde8">Provide a copy of the scene that has audio.</p>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">09</span></div>
+</section>
+
+<!-- 10 · TALK + RULES -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div>
+      <div class="kick mono">Talk to Theodore</div>
+      <h2 class="t din">Say it plain</h2>
+      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--cyan);font-size:15px">Start an option</div><p style="font-size:30px;margin-top:6px">"Build F."</p></div>
+      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--gold);font-size:15px">Run a path</div><p style="font-size:30px;margin-top:6px">"Do path 1, start with F."</p></div>
+      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--orange);font-size:15px">Fix an angle</div><p style="font-size:30px;margin-top:6px">"A42 to A43 is the same shot."</p></div>
+      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--green);font-size:15px">Use your list</div><p style="font-size:30px;margin-top:6px">"Build G from ~/Desktop/shots.csv, Hollywood skin."</p></div>
+      <div class="card"><div class="mono" style="color:var(--violet);font-size:15px">Check status</div><p style="font-size:30px;margin-top:6px">"Where are we, what is still a guess?"</p></div>
+    </div>
+    <div>
+      <div class="kick mono">House rules</div>
+      <h2 class="t din">What Theodore never does</h2>
+      <ul class="tight" style="margin-top:6px">
+        <li><b>No surprise renders.</b> Nothing is rendered unless you ask.</li>
+        <li><b>No deleting.</b> Old builds are renamed as checkpoints and filed in Timelines/Working.</li>
+        <li><b>Read-back after every build.</b> Clip counts, gaps and markers are checked, then shown.</li>
+        <li><b>Stops when Resolve stops.</b> If Resolve refuses writes, Theodore tells you instead of forcing it.</li>
+        <li><b>Lavs travel with the video.</b> Every cut carries its mic audio, linked.</li>
+        <li><b>Honest labels.</b> If a shot cannot be seen clearly, it says UNVERIFIED rather than guessing.</li>
+        <li><b>Film frames stay private.</b> They never go into a student guide or sheet.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">10</span></div>
+</section>
+
+<!-- 11 · LIMITS + WHERE -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="grid2" style="height:100%;padding-bottom:30px">
+    <div>
+      <div class="kick mono">Straight talk</div>
+      <h2 class="t din">Known limits</h2>
+      <ul class="tight">
+        <li><b>Cuts in the dark.</b> Door swings, whip pans and light flicker fool the detector. Three were fixed after you caught them; more may remain.</li>
+        <li><b>Angle height.</b> Defaults to eye level when the camera height cannot be seen.</li>
+        <li><b>Sound.</b> The screen recording has no audio, so sound is unverified.</li>
+        <li><b>The John Wick study</b> uses a fan upload recorded on screen. It is private study material, not for students.</li>
+        <li><b>GitHub</b> is not connected, so saved work lives on this Mac only.</li>
+        <li><b>Chrome setting.</b> "Allow JavaScript from Apple Events" is on for the video work. You can switch it off in View &gt; Developer.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="kick mono">Where things live</div>
+      <h2 class="t din">Find your stuff</h2>
+      <div class="card" style="margin-bottom:16px"><div class="mono" style="font-size:14px;color:var(--cyan)">Resolve projects</div><p style="font-size:23px;line-height:1.5;margin-top:6px">Neon Template · Hollywood Template · Full Frame Template · John Wick Break-In Study · John Wick Home Invasion Template</p></div>
+      <div class="card" style="margin-bottom:16px"><div class="mono" style="font-size:14px;color:var(--gold)">Files and backups</div><p style="font-size:23px;line-height:1.5;margin-top:6px">~/Documents/Theodore/Templates/ holds each template's media, .drp backups, and the John Wick folders, including angle_log.csv.</p></div>
+      <div class="card" style="margin-bottom:16px"><div class="mono" style="font-size:14px;color:var(--orange)">The scripts</div><p style="font-size:23px;line-height:1.5;margin-top:6px">~/theodore/scripts/editing_2026-11/ (README inside). Change shot_list.csv, re-run, everything regenerates.</p></div>
+      <div class="card"><div class="mono" style="font-size:14px;color:var(--green)">Current timeline</div><p style="font-size:23px;line-height:1.5;margin-top:6px">"M01-L02 Home Invasion - ANGLE OVERLAY (current)". Older builds sit in Timelines/Working.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">11</span></div>
+</section>
+
+<!-- 12 · YOUR PICKS -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono">Your picks</div>
+  <h1 class="t din" style="font-size:96px">Tick what you want. Tell Theodore.</h1>
+  <div class="grid2" style="margin-top:26px;gap:26px 60px">
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--violet)">A</span> &nbsp;Live title overlay</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--gold)">B</span> &nbsp;Coverage tracker</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--gold)">C</span> &nbsp;Compare mode</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--orange)">D</span> &nbsp;Cut &amp; camera check</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--orange)">E</span> &nbsp;Sound row</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--blue)">F</span> &nbsp;Sheet + guide export</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--blue)">G</span> &nbsp;Shot-list builder</span></div>
+    <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--green)">H</span> &nbsp;Swap-in loop</span></div>
+  </div>
+  <div class="grid2" style="margin-top:44px;gap:60px">
+    <div><div class="mono" style="font-size:15px;color:var(--dim)">Skin</div><div class="row" style="margin-top:12px;gap:34px"><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Neon</span><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Hollywood</span><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Full Frame</span></div></div>
+    <div><div class="mono" style="font-size:15px;color:var(--dim)">Audience</div><div class="row" style="margin-top:12px;gap:34px"><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Classroom demo</span><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>My own projects</span></div></div>
+  </div>
+  <div class="mono" style="font-size:15px;color:var(--dim);margin-top:44px">Notes</div>
+  <div style="border-bottom:2px solid var(--faint);height:56px"></div><div style="border-bottom:2px solid var(--faint);height:56px"></div><div style="border-bottom:2px solid var(--faint);height:56px"></div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">12</span></div>
+</section>
+
+</body>
+</html>
