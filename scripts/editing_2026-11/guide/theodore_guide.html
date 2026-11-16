@@ -7,7 +7,7 @@
   @page { size: 1920px 1080px; margin: 0; }
   :root{
     --bg:#06080c; --ink:#eef2f7; --dim:#8b97a8; --faint:#2a3340; --line:rgba(255,255,255,.13);
-    --cyan:#2ee6ff; --blue:#2ea8ff; --gold:#e8c070; --orange:#ff8040; --green:#39ff9c; --violet:#b46bff; --red:#ff4d5e;
+    --cyan:#2ee6ff; --blue:#2ea8ff; --gold:#e8c070; --orange:#ff8040; --green:#39ff9c; --violet:#b46bff; --red:#ff4d5e; --pink:#ff5ea8;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{background:var(--bg);color:var(--ink);font-family:"Avenir Next","Helvetica Neue",Arial,sans-serif}
@@ -39,12 +39,19 @@
   ul.tight{list-style:none}ul.tight li{font-size:24px;line-height:1.35;color:#d6dde8;padding-left:26px;position:relative;margin-bottom:10px}
   ul.tight li::before{content:"";position:absolute;left:0;top:12px;width:10px;height:10px;background:var(--cyan);border-radius:2px}
   .lab{font-size:15px;color:var(--dim);margin:16px 0 8px}
-  .cA{--c:var(--violet)}.cB{--c:var(--gold)}.cC{--c:var(--gold)}.cD{--c:var(--orange)}.cE{--c:var(--orange)}.cF{--c:var(--blue)}.cG{--c:var(--blue)}.cH{--c:var(--green)}
+  .cA{--c:var(--violet)}.cB{--c:var(--gold)}.cC{--c:var(--gold)}.cD{--c:var(--orange)}.cE{--c:var(--orange)}.cF{--c:var(--blue)}.cG{--c:var(--blue)}.cH{--c:var(--green)}.cI{--c:var(--pink)}
   .opt .badge{background:var(--c)}.opt .nm{color:var(--c)}.opt .rule{height:3px;background:var(--c);width:100%;border-radius:2px;margin:14px 0 6px;opacity:.8}
   .shot{border-radius:14px;border:1px solid var(--line);width:100%;display:block}
   .stat{font-size:92px;line-height:1}
   .check{width:34px;height:34px;border:3px solid var(--cyan);border-radius:7px;display:inline-block;flex:none}
   .row{display:flex;align-items:center;gap:20px}
+  .menu .grid4{gap:20px}.menu .grid4 .card{padding:20px 26px}.menu .grid4 .badge{width:62px;height:62px;font-size:46px;border-radius:13px}.menu .grid4 .nm{font-size:35px!important;margin:10px 0 4px!important}.menu .grid4 p{font-size:19px!important}
+  .step{display:flex;gap:22px;align-items:flex-start}.step .n{font-size:84px;line-height:.9;color:var(--pink);min-width:70px}
+  .step h3{font-size:42px;margin-bottom:8px;color:var(--ink)}.step p{font-size:24px;line-height:1.4;color:#cfd7e3}
+  .gate{border:2px solid var(--pink);border-radius:16px;padding:18px 26px;background:rgba(255,94,168,.08)}
+  .chip{display:inline-block;padding:10px 18px;border-radius:10px;font-size:26px;margin:0 8px 10px 0;color:#05070a;font-weight:700}
+  .bar{display:flex;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}.bar>div{display:flex;align-items:center;justify-content:center;font-size:15px;color:#05070a;border-right:2px solid #06080c}
+  .lvl{display:flex;align-items:flex-end;height:96px;margin-top:10px}.lvl>div{border-right:2px solid #06080c;border-radius:4px 4px 0 0}
   .say{position:absolute;left:40px;right:40px;bottom:36px;border:2px dashed var(--c);border-radius:14px;padding:18px 24px;display:flex;align-items:center;gap:18px;background:rgba(255,255,255,.03)}
   .say .mono{font-size:14px;color:var(--dim)}.say b{font-size:36px;color:var(--c);font-weight:700}
 </style>
@@ -96,10 +103,10 @@
 </section>
 
 <!-- 4 · THE MENU -->
-<section class="page">
+<section class="page menu">
   <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
   <div class="kick mono">The menu</div>
-  <h1 class="t din" style="font-size:96px">Eight things Theodore can build next</h1>
+  <h1 class="t din" style="font-size:96px">Nine things Theodore can do next</h1>
   <div class="grid4" style="margin-top:20px;grid-auto-rows:1fr">
     <div class="card opt cA"><span class="badge din">A</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">LIVE TITLE OVERLAY</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">One editable animated title replaces 47 baked images.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Design · Not built</div></div>
     <div class="card opt cB"><span class="badge din">B</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">COVERAGE TRACKER</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">A live "angles still to shoot" list students fill in.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Teach · Partly built</div></div>
@@ -110,7 +117,11 @@
     <div class="card opt cG"><span class="badge din">G</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SHOT-LIST BUILDER</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Hand over a shot list; get bins, timelines, slates and an ID list.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Create · Built</div></div>
     <div class="card opt cH"><span class="badge din">H</span><div class="din nm" style="font-size:40px;margin:14px 0 6px">SWAP-IN LOOP</div><p style="font-size:20px;line-height:1.35;color:#c6cfdc">Slated takes replace the placeholders automatically.</p><div class="rule"></div><div class="mono" style="font-size:13px;color:var(--dim)">Produce · Dry-run only</div></div>
   </div>
-  <p style="font-size:22px;color:var(--dim);margin-top:24px">Details on the next four pages. Effort dots: <span class="dots"><i class="on"></i><i></i><i></i><i></i></span> small job &nbsp;·&nbsp; <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span> big job.</p>
+  <div class="card opt cI" style="margin-top:22px;display:flex;align-items:center;gap:34px;padding:20px 34px;border-color:rgba(255,94,168,.7)">
+    <span class="badge din" style="flex:none">I</span>
+    <div style="flex:1"><div class="din nm" style="font-size:58px;line-height:1">THE MR.H METHOD</div><p style="font-size:23px;line-height:1.35;color:#cfd7e3;margin-top:6px">Cut a recap the way the final one was cut: only value lines, a story spine, music swells, tight splices. Checked before and after it is built.</p></div>
+    <div style="flex:none;text-align:right"><span class="tag mono" style="color:var(--pink)">METHOD · READY TO RUN</span><div class="mono" style="font-size:13px;color:var(--dim);margin-top:10px">Two pages: 09 and 10 · effort dots on each option page</div></div>
+  </div>
   <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">04</span></div>
 </section>
 
@@ -234,7 +245,62 @@
   <div class="foot"><span class="mono">Theodore · Field Guide · Options G and H</span><span class="mono">08</span></div>
 </section>
 
-<!-- 9 · PATHS -->
+
+<!-- 9 · MR.H METHOD (1) -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="row" style="gap:28px"><span class="badge din" style="background:var(--pink);width:110px;height:110px;font-size:84px;border-radius:20px">I</span>
+    <div><div class="kick mono" style="color:var(--pink);margin:0 0 14px">Option I · Recap method</div><h1 class="t din" style="font-size:104px;margin:0;line-height:1">THE MR.H METHOD</h1></div></div>
+  <p class="lead" style="font-size:27px;margin-top:14px;max-width:1500px">Keep only the lines that carry feeling, put them in a story order, give the music room to breathe, and prove it before you show it. Learned by studying the final CFF Recap: <b style="color:var(--pink)">3.3 of 23.3 minutes kept, 55 tight pieces, 47 of 54 joins with no pause.</b></p>
+  <div class="grid3" style="margin-top:34px;gap:36px 44px">
+    <div class="step"><div class="n din">1</div><div><h3 class="din">TRANSCRIBE &amp; TAG</h3><p>Transcribe all the lav audio before cutting. Tag every sentence as intro / résumé / logistics, or as a <b>value statement</b>.</p></div></div>
+    <div class="step"><div class="n din">2</div><div><h3 class="din">PICK THE VALUE LINES</h3><p>Keep only the value lines: roughly <b>15% of the source</b>. Names, titles and "what we do" explanations stay on the floor.</p></div></div>
+    <div class="step"><div class="n din">3</div><div><h3 class="din">BUILD THE SPINE</h3><p>Purpose, gratitude, belief, a proof story, giving back, call to action, then a closing line. <b>Search every recording</b> for the closing line.</p></div></div>
+    <div class="step"><div class="n din">4</div><div><h3 class="din">PLAN THE PACING</h3><p>Fast bites early, longer statements later. Music swells with quick B-roll between the blocks.</p></div></div>
+    <div class="step"><div class="n din">5</div><div><h3 class="din">SPLICE &amp; COVER</h3><p>Splice at the sentence level with <b>butt joins</b> (no pause). Cover jumps with <b>1.5-second B-roll</b>.</p></div></div>
+    <div class="step"><div class="n din">6</div><div><h3 class="din">SCORE &amp; CLOSE</h3><p>Duck the music to about <b>−16 dB</b> under speech, swell it between blocks, and end with a long fade.</p></div></div>
+  </div>
+  <div class="grid2" style="margin-top:30px;gap:30px">
+    <div class="gate"><div class="mono" style="color:var(--pink);font-size:14px">Gate 1 · before building</div><p style="font-size:26px;margin-top:6px"><b>You see the list of lines Theodore picked</b>, in order, and say go.</p></div>
+    <div class="gate"><div class="mono" style="color:var(--pink);font-size:14px">Gate 2 · after building</div><p style="font-size:26px;margin-top:6px"><b>Theodore transcribes its own result</b> and checks it against the spine.</p></div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Option I</span><span class="mono">09</span></div>
+</section>
+
+<!-- 10 · MR.H METHOD (2) -->
+<section class="page">
+  <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
+  <div class="kick mono" style="color:var(--pink)">Option I · The Mr.H Method</div>
+  <h2 class="t din" style="font-size:72px;margin-bottom:14px">The spine, the pacing map, the checks</h2>
+  <div class="lab mono" style="margin-top:0">The story spine (in this order)</div>
+  <div>
+    <span class="chip" style="background:var(--cyan)">1 · PURPOSE</span><span class="chip" style="background:var(--gold)">2 · GRATITUDE</span><span class="chip" style="background:var(--green)">3 · BELIEF</span><span class="chip" style="background:var(--violet)">4 · PROOF STORY</span><span class="chip" style="background:var(--orange)">5 · GIVING BACK</span><span class="chip" style="background:var(--blue)">6 · CALL TO ACTION</span><span class="chip" style="background:var(--pink)">7 · CLOSING LINE</span>
+  </div>
+  <div class="lab mono">Pacing and music map from the final CFF Recap (4m11s)</div>
+  <div class="bar">
+    <div style="width:4.8%;background:var(--orange)">open</div><div style="width:4.6%;background:var(--cyan)">thesis</div><div style="width:4.7%;background:var(--orange)">swell</div>
+    <div style="width:14%;background:var(--green)">rapid bites from 4 speakers</div><div style="width:4.6%;background:var(--orange)">swell</div>
+    <div style="width:60.6%;background:var(--blue)">longer statements: the body, proof story, giving back, call to action</div><div style="width:6%;background:var(--pink)">close</div>
+  </div>
+  <div class="lvl">
+    <div style="width:4.8%;height:96px;background:var(--orange)"></div><div style="width:4.6%;height:24px;background:#42506a"></div><div style="width:4.7%;height:96px;background:var(--orange)"></div>
+    <div style="width:14%;height:24px;background:#42506a"></div><div style="width:4.6%;height:96px;background:var(--orange)"></div>
+    <div style="width:60.6%;height:24px;background:#42506a"></div><div style="width:6%;height:96px;background:linear-gradient(180deg,var(--pink),#42506a)"></div>
+  </div>
+  <div class="row" style="justify-content:space-between;font-size:16px;color:var(--dim);margin-top:6px"><span class="mono">0:00</span><span class="mono">music up in swells (about 0 dB) · ducked to about −16 dB under speech · long fade at the end</span><span class="mono">4:11</span></div>
+  <div class="grid3" style="margin-top:22px;gap:28px">
+    <div class="card" style="padding:22px 26px"><div class="mono" style="color:var(--pink);font-size:14px">Mistakes this method fixes</div>
+      <ul class="tight" style="margin-top:10px"><li style="font-size:21px">Keeping résumé and logistics lines</li><li style="font-size:21px">Best closing line stuck mid-timeline</li><li style="font-size:21px">Lines shuffled, nothing builds</li><li style="font-size:21px">One speaker running 40 seconds</li><li style="font-size:21px">No music, slow B-roll, "OPTION" markers left in the cut</li></ul></div>
+    <div class="card" style="padding:22px 26px"><div class="mono" style="color:var(--green);font-size:14px">How you know it worked</div>
+      <ul class="tight" style="margin-top:10px"><li style="font-size:21px">Transcript reads in spine order</li><li style="font-size:21px">About 15% of the source kept</li><li style="font-size:21px">Joins have no pauses</li><li style="font-size:21px">B-roll cuts about 1.5 s</li><li style="font-size:21px">Music −16 dB under speech, ends on a fade</li></ul></div>
+    <div class="card" style="padding:22px 26px;border-color:rgba(255,94,168,.6)"><div class="mono" style="color:var(--pink);font-size:14px">Good to know</div>
+      <p style="font-size:21px;line-height:1.4;color:#d6dde8;margin-top:10px"><b>Status:</b> method defined; first full run pending. <b>Effort:</b> <span class="dots"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><br><b>Theodore needs:</b> every lav recording, the footage, and your OK on the line list.<br><b>Safe:</b> builds a new timeline, never touches your final.</p>
+      <div class="say" style="position:static;margin-top:12px;padding:12px 18px;--c:var(--pink)"><span class="mono">Say it</span><b class="din" style="font-size:30px">"Run the Mr.H Method on the CFF footage."</b></div></div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide · Option I</span><span class="mono">10</span></div>
+</section>
+
+<!-- PATHS -->
 <section class="page">
   <div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div>
   <div class="kick mono">Recommended paths</div>
@@ -259,7 +325,11 @@
       <div class="lab mono">First step you take</div><p style="font-size:22px;color:#d6dde8">Provide a copy of the scene that has audio.</p>
     </div>
   </div>
-  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">09</span></div>
+  <div class="card" style="margin-top:30px;border-color:rgba(255,94,168,.7);display:flex;align-items:center;gap:30px;padding:22px 32px">
+    <div class="din" style="font-size:90px;color:var(--pink);letter-spacing:.1em">I</div>
+    <div><div class="mono" style="color:var(--pink);font-size:16px">Cutting a recap or highlight film?</div><p style="font-size:27px;margin-top:4px">Start with <b>The Mr.H Method</b>. It decides the lines and the order before a single clip is cut.</p></div>
+  </div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">11</span></div>
 </section>
 
 <!-- 10 · TALK + RULES -->
@@ -269,7 +339,7 @@
     <div>
       <div class="kick mono">Talk to Theodore</div>
       <h2 class="t din">Say it plain</h2>
-      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--cyan);font-size:15px">Start an option</div><p style="font-size:30px;margin-top:6px">"Build F."</p></div>
+      <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--cyan);font-size:15px">Start an option</div><p style="font-size:30px;margin-top:6px">"Build F."  or  "Run the Mr.H Method."</p></div>
       <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--gold);font-size:15px">Run a path</div><p style="font-size:30px;margin-top:6px">"Do path 1, start with F."</p></div>
       <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--orange);font-size:15px">Fix an angle</div><p style="font-size:30px;margin-top:6px">"A42 to A43 is the same shot."</p></div>
       <div class="card" style="margin-bottom:18px"><div class="mono" style="color:var(--green);font-size:15px">Use your list</div><p style="font-size:30px;margin-top:6px">"Build G from ~/Desktop/shots.csv, Hollywood skin."</p></div>
@@ -289,7 +359,7 @@
       </ul>
     </div>
   </div>
-  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">10</span></div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">12</span></div>
 </section>
 
 <!-- 11 · LIMITS + WHERE -->
@@ -317,7 +387,7 @@
       <div class="card"><div class="mono" style="font-size:14px;color:var(--green)">Current timeline</div><p style="font-size:23px;line-height:1.5;margin-top:6px">"M01-L02 Home Invasion - ANGLE OVERLAY (current)". Older builds sit in Timelines/Working.</p></div>
     </div>
   </div>
-  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">11</span></div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">13</span></div>
 </section>
 
 <!-- 12 · YOUR PICKS -->
@@ -334,6 +404,7 @@
     <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--blue)">F</span> &nbsp;Sheet + guide export</span></div>
     <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--blue)">G</span> &nbsp;Shot-list builder</span></div>
     <div class="row"><span class="check"></span><span class="din" style="font-size:46px"><span style="color:var(--green)">H</span> &nbsp;Swap-in loop</span></div>
+    <div class="row"><span class="check" style="border-color:var(--pink)"></span><span class="din" style="font-size:46px"><span style="color:var(--pink)">I</span> &nbsp;The Mr.H Method</span></div>
   </div>
   <div class="grid2" style="margin-top:44px;gap:60px">
     <div><div class="mono" style="font-size:15px;color:var(--dim)">Skin</div><div class="row" style="margin-top:12px;gap:34px"><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Neon</span><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Hollywood</span><span class="row" style="gap:12px;font-size:28px"><span class="check" style="width:28px;height:28px"></span>Full Frame</span></div></div>
@@ -341,7 +412,7 @@
   </div>
   <div class="mono" style="font-size:15px;color:var(--dim);margin-top:44px">Notes</div>
   <div style="border-bottom:2px solid var(--faint);height:56px"></div><div style="border-bottom:2px solid var(--faint);height:56px"></div><div style="border-bottom:2px solid var(--faint);height:56px"></div>
-  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">12</span></div>
+  <div class="foot"><span class="mono">Theodore · Field Guide</span><span class="mono">14</span></div>
 </section>
 
 </body>
