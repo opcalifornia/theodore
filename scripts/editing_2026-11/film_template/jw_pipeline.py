@@ -8,7 +8,7 @@ JW = "/private/tmp/claude-503/-Users-OPCALIFORNIA-theodore/2b4f9d35-ee54-5280-90
 D = np.load(f"{JW}/conf2_D.npy"); F = np.load(f"{JW}/conf2_F.npy"); N = len(D)
 v3 = json.load(open(f"{JW}/shots_v3.json")); old = json.load(open(f"{JW}/shots.json"))
 FALSE = [345]                                   # muzzle flash, not a cut
-REGION = [261, 863, 3574, 3896, 4256, 4307, 4420, 4501, 4699, 4782]   # checked frame by frame (the rest come from single-frame peaks)
+REGION = [261, 863, 3574, 3896, 4256, 4420, 4501, 4699, 4782]   # checked frame by frame (the rest come from single-frame peaks)
 cuts = []
 for s in v3[1:]:
     c = s["f_in"]
