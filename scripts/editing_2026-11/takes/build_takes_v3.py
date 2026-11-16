@@ -8,7 +8,7 @@ FPS = 23.976
 CUES = {4: [10.5, 19.3], 5: [15.5, 31.0, 51.7], 6: [5.2, 20.7], 7: [7.7, 31.2, 58.3], 8: "manual:0,66", 9: [21.2, 45.8],
         10: [10.6, 29.7], 11: [39.3, 52.1, 65.1, 74.9, 95.0, 110.7], 12: [30.1, 44.2, 60.2], 13: [10.8, 40.0, 47.2, 69.2, 79.0], 14: None}
 ORDER = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
-SCENE = {n: i + 1 for i, n in enumerate(ORDER)}            # scene number = shot order on the timeline (C004 = S01 ...)
+SCENE = {n: f"1{chr(65 + i)}" for i, n in enumerate(ORDER)}      # editor's naming: scene 1, shots A, B, C ... (C004 = 1A); takes are "Scene 1A Take 2"
 
 def starts(n):
     c = CUES[n]
@@ -68,9 +68,9 @@ def main():
     # label the media: scene number, camera/lav, and the Scene metadata field
     for n in ORDER:
         s = SCENE[n]
-        V[n].SetClipProperty("Clip Name", f"S{s:02d} C{n:03d} camera"); W[n].SetClipProperty("Clip Name", f"S{s:02d} DJI_{n:02d} lav")
+        V[n].SetClipProperty("Clip Name", f"Scene {s} camera (C{n:03d})"); W[n].SetClipProperty("Clip Name", f"Scene {s} lav (DJI_{n:02d})")
         for c in (V[n], W[n]):
-            try: c.SetMetadata({"Scene": str(s)})
+            try: c.SetMetadata({"Scene": s})
             except Exception: pass
     out = {}; bad = []
     for n in ORDER:
@@ -78,7 +78,7 @@ def main():
         for k, a in enumerate(s):
             b = s[k + 1] if k + 1 < len(s) else None
             sf = max(0, int(a * FPS) + dd); ef = (int(b * FPS) + dd - 1) if b is not None else L - 1
-            name = f"S{SCENE[n]:02d} T{k+1} (C{n:03d})"
+            name = f"Scene {SCENE[n]} Take {k+1}"
             t = mp.CreateEmptyTimeline(name); pj.SetCurrentTimeline(t); st = int(t.GetStartFrame())
             mp.AppendToTimeline([{"mediaPoolItem": V[n], "startFrame": sf, "endFrame": ef, "mediaType": 1}])
             want = int(t.GetItemListInTrack("video", 1)[0].GetDuration()); vsrc = int(t.GetItemListInTrack("video", 1)[0].GetSourceStartFrame())
@@ -96,7 +96,7 @@ def main():
     for n in ORDER:
         names = [x[0] for x in out[n]]
         if len(names) > 1:
-            nm = f"S{SCENE[n]:02d} multicam - C{n:03d} ({len(names)} takes)"
+            nm = f"Scene {SCENE[n]}"
             print("multicam", nm, bool(mp.CreateMulticamClip([pool[x] for x in names], {"name": nm})))
             pool = {c.GetName(): c for c in walk(root)}; mp.MoveClips([pool[nm]], mcb); final.append((pool[nm], nm, len(names)))
         else:
