@@ -23,7 +23,9 @@ for beat, rx in beats:
     try: c = find(rx)
     except StopIteration: print("  (fixture: no match for", beat, ")"); continue
     lines.append(dict(beat=beat, file=c["file"], start=c["s"], end=c["e"], text=c["t"], swell_before=beat in ("belief", "giving")))
-sel = dict(project="selftest", source_minutes=sum(r["minutes"] for r in C), lines=lines)
+for ln in lines:
+    if ln["beat"] == "proof": ln["broll"] = ["broll_2.mp4", "broll_3.mp4"]      # content-matched cutaways for this line
+sel = dict(project="selftest", outro=["broll_4.mp4", "broll_5.mp4"], source_minutes=sum(r["minutes"] for r in C), lines=lines)
 json.dump(sel, open(f"{T}/selection.json", "w"), indent=1); print(selection.report(sel))
 h = connection.connect(require_project=False, require_timeline=False); pm = h.project_manager
 home = pm.GetCurrentProject().GetName(); pm.SaveProject()
@@ -31,7 +33,7 @@ name = "Theodore MrH Scratch " + time.strftime("%m%d-%H%M"); proj = (pm.LoadProj
 for k, v in (("timelineFrameRate", "23.976"), ("timelinePlaybackFrameRate", "23.976")): proj.SetSetting(k, v)
 h2 = connection.connect(require_timeline=False)
 pool = proj.GetMediaPool(); root = pool.GetRootFolder(); fol = pool.AddSubFolder(root, "Test B-roll"); pool.SetCurrentFolder(fol); pool.ImportMedia(brolls)
-out = build.build(h2, sel, "Mr.H test recap", music=music, broll_bins=["Test B-roll"], dry_run=False)
+out = build.build(h2, sel, "Mr.H test recap", music=music, broll_bins=["Test B-roll"], dry_run=False, grade_drx=os.path.expanduser("~/Documents/Theodore/Node Trees/RED NODE TREE.drx"), grade_for=lambda n: n.endswith(".mp4"))
 print({k: v for k, v in out.items() if k not in ("dialogue", "music")}); print("dialogue read-back (index, placed src s, wanted src s):", out["dialogue"]); print("music (section, kind, set dB, read-back dB):", out["music"])
 tl = proj.GetCurrentTimeline(); m = check.metrics(tl, dialogue=("audio", 1), broll=("video", 2)); print("metrics:", m)
 res = check.verify(selection.stats(sel), m, check.built_texts(tl), [l["text"] for l in sel["lines"]])

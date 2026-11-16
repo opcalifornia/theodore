@@ -32,6 +32,8 @@ Theodore is an AI editor working inside DaVinci Resolve for one editor. Speed an
 - Media pool has a **Timelines** bin: finished/working-copy timelines at its root (e.g. `audio lined up`, `test`), a **Timelines/Working** sub-bin for checkpoints, scratch and uncut copies. Every timeline Theodore creates is moved into one of them straight away; nothing loose in the Master root. Name scratch timelines `Theodore scratch ...` and checkpoints `Theodore checkpoint ...` so they are obvious.
 
 ## The Mr.H Method (recap / highlight edits): the editor's standing process
+**Priority (editor, 2026-11-16): the dialogue is the job.** Choosing and ordering the talking pieces so the piece hooks the viewer and sells the brand's goal is what costs the editor the most time; B-roll, music and polish are secondary (they add those easily). Spend the effort on the story: hook in the first seconds, a clear arc, every line earning its place, a closing that lands the ask. Length and style are flexible; let the story decide, the 15% / 3.3 min figures are only the partner's benchmark, not targets.
+
 Trigger: the editor names a project and says **"apply the Mr.H Method"** (or "Mr.H this"). Do not ask what it means and do not stall:
 run it, cut the content the way Mr.H would, and turn the event's material into a captivating piece that empowers the brand.
 Ask at most ONE question, and only if the brand or event cannot be read from the project (name, logo clips, bin names, what speakers say).
@@ -41,8 +43,8 @@ Speech-to-text runs from `~/.theodore-stt/bin/python` (mlx-whisper, cached in `~
 1. **Read-only first.** Open nothing destructive. Never touch the editor's or partner's finals; build in a NEW timeline in the Timelines bin.
 2. **Transcribe every lav recording** before cutting: `corpus.discover(h)` then `corpus.transcribe(files)`.
 3. **Tag and pick.** `corpus.candidates(...)` ranks sentences (the ranking only filters: it recovered 85% of the partner's kept lines in its top 40%).
-   READ the candidates and judge them yourself. Throw away intro, résumé, title, logistics and generic thank-yous. Keep value lines only, about 15% of the
-   source: gratitude, excitement, belief in the people, a proof story, giving back / reciprocity, a call to action. Prefer the line that carries the BRAND's
+   READ the candidates and judge them yourself. Throw away intro, résumé, title, logistics and generic thank-yous. Keep value lines only (typically around 15% of the
+   source, but let the story set the length): gratitude, excitement, belief in the people, a proof story, giving back / reciprocity, a call to action. Prefer the line that carries the BRAND's
    promise (what the program does for people) over a generic one. Keep whole thoughts, splice fragments, drop ums. One speaker should not run more than about 25 s in total.
 4. **Spine, in order:** purpose, gratitude, belief, proof, giving, action, closing. Search EVERY recording for the closing line (it may be in a different file). Open on the line that states the purpose to the audience.
 5. **Pacing:** quick bites early (several voices inside the first ~40 s), longer statements later; a cold open and music swells (about 11.8 s) with quick 1.5 s B-roll between blocks. Mark `swell_before` on the first line of a new block in `selection.json`.
@@ -51,3 +53,4 @@ Speech-to-text runs from `~/.theodore-stt/bin/python` (mlx-whisper, cached in `~
 8. **GATE 2:** `check.metrics(tl)`, `check.built_texts(tl)` (transcribe what was actually placed) and `check.verify(...)`. Fix every FAIL, then report PASS/FAIL, a screenshot, and anything still a guess. No "OPTION" markers left in the cut: make the decision or ask once.
 9. Never render unless asked. Never delete anything (checkpoint instead).
 Measured benchmark (partner's final CFF Recap): 3.3 of 23.3 min kept, 55 pieces (30 under 2 s), 47 of 54 joins butt-joined, B-roll over 53% of speech with a 1.5 s median, music about -16 dB under speech.
+Secondary, picture and mix (from the partner's final; do after the story is locked): end on brand cards (logos, partner marks, program commercial, thank-you, ~3 s each, swipe transitions only there); B-roll content-matched to what is said, from the organizations' own footage; editor's 18-node RED tree on camera clips (`~/Documents/Theodore/Node Trees/RED NODE TREE.drx`); no punch-ins; UHD timeline; dialogue pieces gain-matched to about -19 dB mean (builder does this), no voice isolation/leveler/join fades. Data: `~/Documents/Theodore/MrH Cache/benchmark_CFF/`.

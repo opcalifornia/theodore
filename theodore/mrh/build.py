@@ -5,14 +5,42 @@ Every placement is read back; nothing is deleted except a trial placement that l
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 
 from theodore.resolve.timeline_ops import _place_exact
+
+
+def measure(path, ss, d):
+    """(mean dB, max dB) of a source piece, from ffmpeg volumedetect."""
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{ss:.3f}", "-t", f"{d:.3f}", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                       capture_output=True, text=True).stderr
+    m, x = re.search(r"mean_volume:\s*(-?[\d.]+) dB", p), re.search(r"max_volume:\s*(-?[\d.]+) dB", p)
+    return (float(m.group(1)), float(x.group(1))) if m and x else (None, None)
+
+
+def gain_for(path, ss, d, target=-19.1, ceiling=-1.0):
+    """Gain that lands this piece at the editor's dialogue level (the partner's final sits at about -19 dB mean), never over the ceiling."""
+    mean, mx = measure(path, ss, d)
+    if mean is None: return 0.0
+    return round(max(-12.0, min(24.0, min(target - mean, ceiling - mx))), 1)
 
 
 def _find_item(pool, path):
     def walk(f):
         for c in f.GetClipList() or []:
             if (c.GetClipProperty("File Path") or "") == path: return c
+        for s in f.GetSubFolderList() or []:
+            r = walk(s)
+            if r: return r
+    return walk(pool.GetRootFolder())
+
+
+def _find_by_name(pool, name):
+    """A media pool clip by its name or file name (organization promo videos, logo cards, thank-you card...)."""
+    def walk(f):
+        for c in f.GetClipList() or []:
+            if c.GetName() == name or os.path.basename(c.GetClipProperty("File Path") or "") == name: return c
         for s in f.GetSubFolderList() or []:
             r = walk(s)
             if r: return r
@@ -31,6 +59,7 @@ def _import(pool, path, folder="Mr.H Media"):
 
 def plan(sel: dict, fps: float, cold_open_s=12.0, swell_s=11.8, outro_s=12.0) -> dict:
     """Frame plan relative to timeline start. A line with "swell_before": true gets a swell (music up, quick B-roll) first."""
+    if sel.get("outro"): outro_s = 3.0 * len(sel["outro"])       # one ~3 s brand card each
     f = lambda s: int(round(s * fps)); cur = f(cold_open_s); places, swells = [], [(0, f(cold_open_s))]
     for i, ln in enumerate(sel["lines"]):
         if ln.get("swell_before"):
@@ -46,7 +75,7 @@ def plan(sel: dict, fps: float, cold_open_s=12.0, swell_s=11.8, outro_s=12.0) ->
 
 
 def build(h, sel: dict, name: str, *, music: str | None = None, broll_bins: list[str] | None = None, duck_db=-16.0, swell_db=0.0,
-          dry_run=True, cold_open_s=12.0, swell_s=11.8, outro_s=12.0, broll_s=1.5) -> dict:
+          dry_run=True, cold_open_s=12.0, swell_s=11.8, outro_s=12.0, broll_s=1.5, grade_drx: str | None = None, grade_for=None, dialogue_db=-19.1) -> dict:
     project, pm = h.project, h.project_manager; pool = project.GetMediaPool()
     fps = float(project.GetSetting("timelineFrameRate") or 23.976)
     P = plan(sel, fps, cold_open_s, swell_s, outro_s)
@@ -75,6 +104,8 @@ def build(h, sel: dict, name: str, *, music: str | None = None, broll_bins: list
                                       "recordFrame": T0 + pl["rec"], "trackIndex": 1, "mediaType": 2}, pl["n"]) if it else None
         if got is None: out["failed"].append(("line", pl["i"])); continue
         out["dialogue"].append((pl["i"], round(float(got.GetSourceStartTime()), 2), round(pl["line"]["start"], 2)))
+        g = gain_for(path, pl["line"]["start"], pl["line"]["end"] - pl["line"]["start"], dialogue_db)      # level-match every piece
+        got.SetProperty("AudioVolume", g); out.setdefault("dialogue_gain", []).append(g)
     if music:
         mi = _import(pool, music); X = 12      # 12 frames = 0.5 s each side -> 1 s crossfade
         for k, (a, b, kind) in enumerate(P["music"]):
@@ -94,21 +125,42 @@ def build(h, sel: dict, name: str, *, music: str | None = None, broll_bins: list
             if p and os.path.exists(p) and not p.lower().endswith((".wav", ".mp3")): clips.append(c)
     if clips:
         L = max(1, int(round(broll_s * fps))); idx = 0
-        def put(rec, track):
+        def put(rec, track, own=None):
             nonlocal idx
-            c = clips[idx % len(clips)]; idx += 1
+            if own: c = own.pop(0)                     # content-matched asset for this line first
+            else: c = clips[idx % len(clips)]; idx += 1
             fr = int(c.GetClipProperty("Frames") or 0)
             if fr <= L + 2: return False
             st = max(0, min(fr - L - 1, fr // 2 - L // 2))
             got = _place_exact(tl, pool, {"mediaPoolItem": c, "startFrame": st, "endFrame": st + L - 1, "recordFrame": T0 + rec, "trackIndex": track, "mediaType": 1}, L)
             if got is None: out["failed"].append(("broll", rec)); return False
             out["broll"] += 1; return True
-        for a, b in P["swells"]:
+        for si, (a, b) in enumerate(P["swells"]):
+            if sel.get("outro") and si == len(P["swells"]) - 1: continue   # the last swell is the brand cards
             for rec in range(a, b - L + 1, L): put(rec, 1)
         step = int(round(2 * broll_s * fps))          # 1.5 s of B-roll, 1.5 s of speaker: about half the talking is covered
         for pl in P["places"]:
             t = pl["rec"] + int(round(0.8 * fps))
+            own = [x for x in (_find_by_name(pool, nm) for nm in pl["line"].get("broll", [])) if x]
             while t + L <= pl["rec"] + pl["n"] - int(round(0.4 * fps)):
-                put(t, 2); t += step
+                put(t, 2, own if own else None); t += step
+    # closing brand cards (logos, partner marks, thank-you) on the last swell, ~3 s each
+    out["outro"] = 0
+    if sel.get("outro"):
+        a = P["swells"][-1][0]; L3 = int(round(3.0 * fps))
+        for k, nm in enumerate(sel["outro"]):
+            it = _find_by_name(pool, nm)
+            got = _place_exact(tl, pool, {"mediaPoolItem": it, "startFrame": 0, "endFrame": L3 - 1, "recordFrame": T0 + a + k * L3, "trackIndex": 1, "mediaType": 1}, L3) if it else None
+            if got is None: out["failed"].append(("outro", nm)); continue
+            out["outro"] += 1
+    # the editor's node tree on every camera clip (logo cards stay ungraded)
+    out["graded"] = 0
+    if grade_drx:
+        want = grade_for or (lambda n: n.upper().endswith(".R3D"))
+        for tr in (1, 2):
+            for x in tl.GetItemListInTrack("video", tr) or []:
+                if x.GetType() != "transition" and want(x.GetName()):
+                    g = x.GetNodeGraph()
+                    if g and g.ApplyGradeFromDRX(grade_drx, 0): out["graded"] += 1
     project.SetCurrentTimeline(tl)
     return out
