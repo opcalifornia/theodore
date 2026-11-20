@@ -1,0 +1,22 @@
+key,kind,seconds,description,parent,into_seconds,lane,location,camera,planned_iso,planned_kelvin,planned_tint,notes,status
+open_est,broll,6,Cold open - establishing wide,,,,,A-CAM,,,,,planned
+hook,interview,8,Cold open - hook soundbite,,,,,A-CAM,,,,,planned
+main_title,title,5,Main title,,,,,A-CAM,,,,,planned
+host_intro,instruction,20,Act 1 - host intro to camera,,,,,A-CAM,,,,,planned
+subj_a,interview,20,Act 1 - interview subject A,,,,,A-CAM,,,,,planned
+bumper1,transition,3,Chapter bumper - Act 2,,,,,A-CAM,,,,,planned
+demo_wide,instruction,15,Act 2 - demonstration wide,,,,,A-CAM,,,,,planned
+demo_cu,broll,8,Act 2 - demonstration close-ups,,,,,A-CAM,,,,,planned
+subj_b,interview,18,Act 2 - interview subject B,,,,,A-CAM,,,,,planned
+mont1,broll,4,Montage - detail 1,,,,,A-CAM,,,,,planned
+mont2,broll,4,Montage - detail 2,,,,,A-CAM,,,,,planned
+mont3,broll,4,Montage - detail 3,,,,,A-CAM,,,,,planned
+timelapse,transition,3,Time-lapse - passage of time,,,,,A-CAM,,,,,planned
+recap,instruction,15,Act 3 - host recap,,,,,A-CAM,,,,,planned
+hero,broll,6,Closing hero shot,,,,,A-CAM,,,,,planned
+credits,title,8,End title and credits,,,,,A-CAM,,,,,planned
+host_cut,broll,5,B-roll cutaway - location,host_intro,8,1,,B-CAM,,,,,planned
+lt_a,title,5,Lower third - subject A name,subj_a,1,2,,GFX,,,,,planned
+subj_a_cut,broll,6,B-roll cutaway - subject A at work,subj_a,10,1,,B-CAM,,,,,planned
+lt_b,title,5,Lower third - subject B name,subj_b,1,2,,GFX,,,,,planned
+subj_b_cut,broll,5,B-roll cutaway - subject B detail,subj_b,9,1,,B-CAM,,,,,planned

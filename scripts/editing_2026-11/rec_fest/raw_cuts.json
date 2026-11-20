@@ -1,0 +1,57 @@
+{
+ "P01_Damien_my_people": {
+  "dji": "40",
+  "start": 10.229999999999999,
+  "end": 12.64
+ },
+ "P02_Damien_second_annual": {
+  "dji": "40",
+  "start": 14.149999999999999,
+  "end": 16.6
+ },
+ "P06_DrReynolds_India_Basin": {
+  "dji": "39",
+  "start": 46.870000000000005,
+  "end": 59.22
+ },
+ "P07_MC_we_kayak": {
+  "dji": "39",
+  "start": 397.41,
+  "end": 404.21000000000004
+ },
+ "P08_MC_we_outside_baby": {
+  "dji": "39",
+  "start": 407.69,
+  "end": 409.93
+ },
+ "P03_Damien_kids_outside": {
+  "dji": "40",
+  "start": 28.110000000000003,
+  "end": 33.46
+ },
+ "P04_Damien_beautiful_world": {
+  "dji": "40",
+  "start": 35.17,
+  "end": 40.12
+ },
+ "P09_MRB_intro": {
+  "dji": "43",
+  "start": 173.13,
+  "end": 179.98000000000002
+ },
+ "P10_MRB_waterfront": {
+  "dji": "43",
+  "start": 182.17,
+  "end": 186.95
+ },
+ "P11_MRB_shine": {
+  "dji": "43",
+  "start": 129.99,
+  "end": 138.76000000000002
+ },
+ "P05_Damien_lets_go": {
+  "dji": "40",
+  "start": 41.25,
+  "end": 41.76
+ }
+}
